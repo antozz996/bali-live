@@ -2,18 +2,70 @@
 
 let currentItineraryRegion = 'Tutti';
 let currentDayNum = 1;
+let backendSyncTimer = null;
+let weatherRefreshTimer = null;
+let isHydratingFromBackend = false;
 
-document.addEventListener('DOMContentLoaded', () => { initApp(); });
+const SYNC_KEYS = [
+  'bali_budget_items_v2', 'bali_paid_items_custom', 'bali_itinerary_v1',
+  'bali_accommodations_v1', 'bali_food_v2', 'bali_checklist_items_v1',
+  'bali_checklist_state', 'bali_pianob_v1', 'bali_drivers_v1',
+  'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses'
+];
 
-function initApp() {
+const h = value => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+const escapeHTML = h;
+
+function safeExternalUrl(value) {
+  if (!value) return '';
+  try {
+    const url = new URL(String(value), window.location.origin);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+
+function saveJSON(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+  scheduleBackendSync();
+}
+
+function removeStoredKey(key) {
+  localStorage.removeItem(key);
+  scheduleBackendSync();
+}
+
+function normalizeCollection(key, items) {
+  const prefixByKey = {
+    [BUDGET_KEY || 'bali_budget_items_v2']: 'BUD',
+    bali_accommodations_v1: 'HOTEL', bali_food_v2: 'FOOD', bali_checklist_items_v1: 'CL',
+    bali_pianob_v1: 'PB', bali_drivers_v1: 'DRV', bali_photos_v1: 'PS', bali_excursions_v1: 'EX'
+  };
+  const prefix = prefixByKey[key] || 'ITEM';
+  return items.filter(item => item && typeof item === 'object').map((item, index) => {
+    const id = String(item.id || '');
+    return { ...item, id: /^[A-Za-z0-9_-]{1,80}$/.test(id) ? id : `${prefix}-${index + 1}` };
+  });
+}
+
+document.addEventListener('DOMContentLoaded', () => { initApp().catch(showFatalError); });
+
+async function initApp() {
+  migrateLocalData();
+  await hydrateStateFromBackend();
   initCountdown();
-  renderWeatherWidget();
+  await refreshWeather();
   renderDashboard();
   renderItineraryDaySelector();
   renderItineraryDay(currentDayNum);
   renderAccommodations();
   renderBudget();
   renderFood();
+  renderExcursions();
   renderChecklist();
   renderPianoB();
   renderEmergencyContacts();
@@ -24,8 +76,27 @@ function initApp() {
   initExpenseLogger();
   initNavigation();
   initSearch();
+  initBackupImport();
+  initModalAccessibility();
   updateWalletTotals();
   registerServiceWorker();
+  weatherRefreshTimer = window.setInterval(() => refreshWeather(), 10 * 60 * 1000);
+}
+
+function showFatalError(error) {
+  console.error(error);
+  const app = document.getElementById('app');
+  if (app) app.insertAdjacentHTML('afterbegin', '<div class="app-error">Impossibile avviare l’app. Ricarica la pagina o ripristina un backup.</div>');
+}
+
+function migrateLocalData() {
+  const oldFood = localStorage.getItem('bali_food_v1');
+  if (oldFood && !localStorage.getItem('bali_food_v2')) {
+    try {
+      const migrated = JSON.parse(oldFood).map((item, index) => ({ ...item, id: item.id || `FOOD-${index + 1}` }));
+      localStorage.setItem('bali_food_v2', JSON.stringify(migrated));
+    } catch {}
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -34,29 +105,62 @@ function initApp() {
 function getSection(key, fallbackArr) {
   try {
     const s = localStorage.getItem(key);
-    if (s) return JSON.parse(s);
+    if (s) {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) return normalizeCollection(key, parsed);
+    }
   } catch(e) {}
-  const seed = fallbackArr.map(i => ({...i}));
+  const seed = normalizeCollection(key, fallbackArr.map(i => ({...i})));
   localStorage.setItem(key, JSON.stringify(seed));
   return seed;
 }
 function saveSection(key, data) {
-  localStorage.setItem(key, JSON.stringify(data));
+  saveJSON(key, data);
 }
 
 /* ═══════════════════════════════════════════════════════
    1. WEATHER
    ═══════════════════════════════════════════════════════ */
-function renderWeatherWidget() {
+function renderWeatherWidget(payload) {
   const c = document.getElementById('weather-widget');
   if (!c) return;
-  c.innerHTML = BALI_TRIP_DATA.weather.map(w => `
+  const locations = payload?.locations || [];
+  c.className = 'weather-bar';
+  c.innerHTML = locations.map(w => `
     <div class="weather-chip">
-      <span class="weather-area">${w.area}</span>
-      <span>${w.condition.split(' ')[0]}</span>
-      <span class="weather-temp">${w.temp}</span>
-    </div>`).join('');
+      <span class="weather-area">${h(w.name)}</span>
+      <span aria-hidden="true">${h(w.icon)}</span>
+      <span class="weather-details">
+        <span class="weather-temp">${Number(w.temperatureC).toFixed(0)}°C</span>
+        <span class="weather-extra">${h(w.description)} · 💧${h(w.humidityPercent)}% · ${h(w.today?.minTemperatureC)}°/${h(w.today?.maxTemperatureC)}°</span>
+      </span>
+    </div>`).join('') + `
+    <button class="icon-btn weather-refresh" onclick="refreshWeather(true)" aria-label="Aggiorna meteo" title="Aggiorna meteo">↻</button>`;
+  c.title = `${payload.stale ? 'Ultimo dato disponibile' : 'Aggiornato'}: ${new Date(payload.fetchedAt).toLocaleString('it-IT')}`;
 }
+
+async function refreshWeather(force = false) {
+  const c = document.getElementById('weather-widget');
+  if (!c) return;
+  c.className = 'weather-bar loading';
+  c.textContent = 'Aggiornamento meteo live…';
+  try {
+    const response = await fetch(`/api/weather${force ? '?refresh=1' : ''}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`Meteo non disponibile (${response.status})`);
+    const payload = await response.json();
+    localStorage.setItem('bali_last_weather', JSON.stringify(payload));
+    renderWeatherWidget(payload);
+  } catch (error) {
+    let cached = null;
+    try { cached = JSON.parse(localStorage.getItem('bali_last_weather') || 'null'); } catch {}
+    if (cached?.locations?.length) renderWeatherWidget({ ...cached, stale: true });
+    else {
+      c.className = 'weather-bar error';
+      c.innerHTML = `<span>Meteo live non raggiungibile</span><button class="btn-cancel" onclick="refreshWeather(true)" style="padding:6px 10px;">Riprova</button>`;
+    }
+  }
+}
+window.refreshWeather = refreshWeather;
 
 /* ═══════════════════════════════════════════════════════
    2. COUNTDOWN
@@ -79,16 +183,33 @@ function initCountdown() {
    ═══════════════════════════════════════════════════════ */
 function initNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
-    item.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      document.querySelectorAll('.view-panel').forEach(p => p.classList.remove('active'));
-      item.classList.add('active');
-      document.getElementById('view-' + item.getAttribute('data-view'))?.classList.add('active');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    });
+    item.addEventListener('click', () => activateView(item.getAttribute('data-view')));
   });
   document.querySelectorAll('.modal-overlay').forEach(o => {
     o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); });
+  });
+  activateView('dashboard');
+}
+
+function activateView(view) {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    const active = item.getAttribute('data-view') === view;
+    item.classList.toggle('active', active);
+    item.setAttribute('aria-current', active ? 'page' : 'false');
+  });
+  document.querySelectorAll('.view-panel').forEach(panel => {
+    const active = panel.id === `view-${view}`;
+    panel.classList.toggle('active', active);
+    panel.setAttribute('aria-hidden', String(!active));
+  });
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+window.activateView = activateView;
+
+function initModalAccessibility() {
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('.modal-overlay.active').forEach(modal => modal.classList.remove('active'));
   });
 }
 
@@ -100,9 +221,9 @@ const BUDGET_PAID_KEY = 'bali_paid_items_custom';
 const BUDGET_CATS     = ['Voli','Alloggi','Escursioni','Trasporti','Cibo & Ristoranti',
                          'Documenti','Assicurazione','Connettività','Benessere / Spa','Extra & Mance','Altro'];
 
-function getBudgetItems()    { return getSection(BUDGET_KEY, BALI_TRIP_DATA.budgetItems); }
+function getBudgetItems()    { return getSection(BUDGET_KEY, BALI_TRIP_DATA.budgetItems).map(item => ({ ...item, amount: Number(item.amount) || 0, paidDefault: Boolean(item.paidDefault) })); }
 function saveBudgetItems(d)  { saveSection(BUDGET_KEY, d); }
-function getBudgetPaidState(){ try { return JSON.parse(localStorage.getItem(BUDGET_PAID_KEY)||'{}'); } catch(e){return{};} }
+function getBudgetPaidState(){ try { const value=JSON.parse(localStorage.getItem(BUDGET_PAID_KEY)||'{}'); return value&&typeof value==='object'&&!Array.isArray(value)?value:{}; } catch(e){return{};} }
 // alias usato da Gmail sync
 function getPaidItemsState() { return getBudgetPaidState(); }
 
@@ -112,7 +233,13 @@ function calculateTotalPaidEUR() {
     const paid = paidSt[item.id] !== undefined ? paidSt[item.id] : item.paidDefault;
     return a + (paid ? (parseFloat(item.amount)||0) : 0);
   }, 0);
-  return t + getLoggedExpenses().reduce((a, e) => a + e.amountEUR, 0);
+  return t;
+}
+
+function calculateActualExpensesEUR() {
+  return getLoggedExpenses()
+    .filter(expense => expense.wallet !== 'atm_withdrawal')
+    .reduce((total, expense) => total + (Number(expense.amountEUR) || 0), 0);
 }
 
 function renderBudget() {
@@ -128,11 +255,12 @@ function renderBudget() {
   });
   const grand = paid+pending;
   const pct   = grand>0 ? Math.round((paid/grand)*100) : 0;
+  const actualExpenses = calculateActualExpensesEUR();
 
   container.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
       <div class="metric-card" style="text-align:center;padding:12px 6px;">
-        <div style="font-size:18px;">💰</div><div class="metric-label">Totale</div>
+        <div style="font-size:18px;">💰</div><div class="metric-label">Piano spese</div>
         <div class="metric-value" style="font-size:16px;">€${grand.toFixed(0)}</div>
       </div>
       <div class="metric-card" style="text-align:center;padding:12px 6px;border-color:rgba(16,185,129,.3);">
@@ -143,6 +271,10 @@ function renderBudget() {
         <div style="font-size:18px;">⏳</div><div class="metric-label">Da Saldare</div>
         <div class="metric-value" style="font-size:16px;color:var(--accent-amber);">€${pending.toFixed(0)}</div>
       </div>
+    </div>
+    <div class="glass-card" style="padding:12px 16px;margin-bottom:14px;border-color:rgba(6,182,212,.25);">
+      <div class="progress-labels"><span>Spese effettive registrate</span><strong style="color:var(--accent-cyan);">€${actualExpenses.toFixed(2)}</strong></div>
+      <div style="font-size:10px;color:var(--text-muted);">I prelievi ATM sono trasferimenti e non vengono conteggiati come spesa.</div>
     </div>
     <div class="glass-card" style="padding:12px 16px;margin-bottom:14px;">
       <div class="progress-labels">
@@ -191,7 +323,7 @@ function _budgetRow(item, paidSt, edit) {
   const isPaid = paidSt[item.id] !== undefined ? paidSt[item.id] : item.paidDefault;
   const amt    = parseFloat(item.amount)||0;
   if (edit) {
-    const sd = (item.desc||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    const sd = h(item.desc||'');
     return `<div id="brow-${item.id}" style="background:rgba(6,182,212,.07);border:1px solid rgba(6,182,212,.35);border-radius:12px;padding:12px;">
       <div style="font-size:11px;font-weight:800;color:var(--accent-cyan);margin-bottom:8px;">✏️ Modifica voce</div>
       <input id="bedit-desc-${item.id}" class="search-input" value="${sd}" style="margin-bottom:6px;">
@@ -212,8 +344,8 @@ function _budgetRow(item, paidSt, edit) {
       ${isPaid?'✓':'○'}
     </div>
     <div onclick="toggleBudgetItemPaid('${item.id}')" style="flex:1;min-width:0;cursor:pointer;user-select:none;">
-      <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isPaid?'text-decoration:line-through;color:var(--text-muted);':'color:var(--text-primary);'}">${item.desc}</div>
-      <div style="font-size:10px;color:var(--accent-cyan);font-weight:600;margin-top:1px;">${item.cat}</div>
+      <div style="font-size:13px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;${isPaid?'text-decoration:line-through;color:var(--text-muted);':'color:var(--text-primary);'}">${h(item.desc)}</div>
+      <div style="font-size:10px;color:var(--accent-cyan);font-weight:600;margin-top:1px;">${h(item.cat)}</div>
     </div>
     <div onclick="toggleBudgetItemPaid('${item.id}')" style="text-align:right;flex-shrink:0;cursor:pointer;user-select:none;">
       <div style="font-family:var(--font-heading);font-weight:800;font-size:14px;white-space:nowrap;color:${isPaid?'var(--accent-emerald)':'var(--accent-amber)'};">€${amt.toFixed(2)}</div>
@@ -232,7 +364,7 @@ window.toggleBudgetItemPaid = function(id) {
   const item  = items.find(i=>i.id===id);
   if(!item) return;
   st[id] = !(st[id] !== undefined ? st[id] : item.paidDefault);
-  localStorage.setItem(BUDGET_PAID_KEY, JSON.stringify(st));
+  saveJSON(BUDGET_PAID_KEY, st);
   renderBudget(); renderDashboard();
 };
 window.budgetStartEdit = function(id) {
@@ -255,7 +387,7 @@ window.budgetDeleteItem = function(id) {
   if(!confirm('Eliminare questa voce?')) return;
   saveBudgetItems(getBudgetItems().filter(i=>i.id!==id));
   const st=getBudgetPaidState(); delete st[id];
-  localStorage.setItem(BUDGET_PAID_KEY,JSON.stringify(st));
+  saveJSON(BUDGET_PAID_KEY, st);
   renderBudget(); renderDashboard();
 };
 window.budgetStartAdd   = () => { const f=document.getElementById('budget-add-form'); if(f){f.style.display='block';document.getElementById('badd-desc')?.focus();} };
@@ -271,7 +403,7 @@ window.budgetConfirmAdd = function() {
 };
 window.budgetResetToDefault = function() {
   if(!confirm('Ripristinare le voci originali? Tutte le modifiche verranno perse.')) return;
-  localStorage.removeItem(BUDGET_KEY); localStorage.removeItem(BUDGET_PAID_KEY);
+  removeStoredKey(BUDGET_KEY); removeStoredKey(BUDGET_PAID_KEY);
   renderBudget(); renderDashboard();
 };
 
@@ -282,18 +414,27 @@ function renderDashboard() {
   const c = document.getElementById('dashboard-metrics');
   if (!c) return;
   const totalPaid = calculateTotalPaidEUR();
+  const actualExpenses = calculateActualExpensesEUR();
   const budgetMax = BALI_TRIP_DATA.meta.budgetMax;
   const pct       = Math.min(100, Math.round((totalPaid/budgetMax)*100));
+  const hotels = getHotels();
+  const nights = hotels.reduce((total, hotel) => total + (Number(hotel.nights) || 0), 0);
+  const excursions = getExcursions();
+  const bookedExcursions = excursions.filter(excursion => excursion.status === 'Prenotata').length;
   c.innerHTML = `
     <div class="metrics-grid">
       <div class="metric-card"><div class="metric-icon">💰</div><div class="metric-label">Budget Max</div>
         <div class="metric-value">€${budgetMax.toLocaleString('it-IT',{minimumFractionDigits:2})}</div><div class="metric-foot">2 Viaggiatori</div></div>
       <div class="metric-card"><div class="metric-icon">💳</div><div class="metric-label">Pagato</div>
         <div class="metric-value" style="color:var(--accent-emerald);">€${totalPaid.toLocaleString('it-IT',{minimumFractionDigits:2})}</div><div class="metric-foot">${pct}% del totale</div></div>
+      <div class="metric-card"><div class="metric-icon">🧾</div><div class="metric-label">Spese viaggio</div>
+        <div class="metric-value">€${actualExpenses.toFixed(2)}</div><div class="metric-foot">Prelievi esclusi</div></div>
       <div class="metric-card"><div class="metric-icon">🏨</div><div class="metric-label">Notti</div>
-        <div class="metric-value">13</div><div class="metric-foot">Ubud•Gili•Sud</div></div>
+        <div class="metric-value">${nights}</div><div class="metric-foot">${hotels.length} alloggi</div></div>
       <div class="metric-card"><div class="metric-icon">✅</div><div class="metric-label">Hotel</div>
-        <div class="metric-value">3/3</div><div class="metric-foot">Tutti prenotati!</div></div>
+        <div class="metric-value">${hotels.length}</div><div class="metric-foot">Prenotazioni salvate</div></div>
+      <div class="metric-card"><div class="metric-icon">🧭</div><div class="metric-label">Escursioni</div>
+        <div class="metric-value">${bookedExcursions}/${excursions.length}</div><div class="metric-foot">Prenotate</div></div>
     </div>
     <div class="glass-card">
       <div class="progress-labels"><span>Avanzamento Pagamenti</span><span>€${totalPaid.toFixed(0)} / €${budgetMax.toFixed(0)}</span></div>
@@ -305,7 +446,12 @@ function renderDashboard() {
    6. ITINERARIO (full CRUD)
    ═══════════════════════════════════════════════════════ */
 const ITIN_KEY = 'bali_itinerary_v1';
-function getItinerary() { return getSection(ITIN_KEY, BALI_TRIP_DATA.itinerary); }
+function getItinerary() {
+  const seen = new Set();
+  return getSection(ITIN_KEY, BALI_TRIP_DATA.itinerary)
+    .map(day => ({ ...day, dayNum: Number.parseInt(day.dayNum, 10) }))
+    .filter(day => Number.isInteger(day.dayNum) && day.dayNum > 0 && !seen.has(day.dayNum) && seen.add(day.dayNum));
+}
 function saveItinerary(d){ saveSection(ITIN_KEY, d); }
 
 window.filterItineraryByRegion = function(region) {
@@ -314,6 +460,10 @@ window.filterItineraryByRegion = function(region) {
   renderItineraryDaySelector();
   const days = _filteredDays();
   if(days.length) selectItineraryDay(days[0].dayNum);
+  else {
+    const content = document.getElementById('itinerary-content');
+    if (content) content.innerHTML = '<div class="glass-card">Nessun giorno in questa area.</div>';
+  }
 };
 
 function _filteredDays() {
@@ -326,10 +476,10 @@ function renderItineraryDaySelector() {
   const c = document.getElementById('day-selector-container');
   if (!c) return;
   c.innerHTML = _filteredDays().map(day => `
-    <div class="day-pill ${day.dayNum===currentDayNum?'active':''}" onclick="selectItineraryDay(${day.dayNum})">
+    <button type="button" class="day-pill ${day.dayNum===currentDayNum?'active':''}" onclick="selectItineraryDay(${day.dayNum})" aria-label="Apri giorno ${day.dayNum}">
       <div class="day-pill-num">Giorno ${day.dayNum}</div>
-      <div class="day-pill-date">${(day.date||'').split('/')[0]} Set</div>
-    </div>`).join('');
+      <div class="day-pill-date">${h((day.date||'').split('/')[0])} Set</div>
+    </button>`).join('') + '<button type="button" class="day-pill day-pill-add" onclick="itinStartAdd()" aria-label="Aggiungi giorno">＋</button>';
 }
 
 window.selectItineraryDay = function(dayNum) {
@@ -344,32 +494,35 @@ function renderItineraryDay(dayNum) {
   const day = getItinerary().find(d => d.dayNum === dayNum);
   if (!day) { c.innerHTML = `<div style="color:var(--text-muted);font-size:13px;padding:16px;">Nessun giorno selezionato.</div>`; return; }
   const mq = encodeURIComponent(`${day.location} Bali`);
+  const intensity = ['alta','media','bassa'].includes(String(day.intensity).toLowerCase()) ? String(day.intensity).toLowerCase() : 'media';
   const wa = encodeURIComponent(`🌺 Bali 2026 - Giorno ${day.dayNum} (${day.date})\n📍 ${day.location}\n🌅 ${day.morning}\n☀️ ${day.afternoon}\n🌙 ${day.evening}`);
+  const linkedExcursions = getExcursions().filter(excursion => Number(excursion.dayNum) === Number(dayNum));
   c.innerHTML = `
     <div class="glass-card itinerary-card">
       <div class="itinerary-head">
         <div>
-          <div class="itinerary-day-title">Giorno ${day.dayNum} • ${day.dayName} ${day.date}</div>
-          <div class="itinerary-meta"><span>📍 ${day.location||'–'}</span><span>• ${day.phase||''}</span></div>
+          <div class="itinerary-day-title">Giorno ${day.dayNum} • ${h(day.dayName)} ${h(day.date)}</div>
+          <div class="itinerary-meta"><span>📍 ${h(day.location||'–')}</span><span>• ${h(day.phase||'')}</span></div>
         </div>
         <div style="display:flex;gap:6px;align-items:center;">
-          <span class="badge badge-${(day.intensity||'media').toLowerCase()}">${day.intensity||'Media'}</span>
+          <span class="badge badge-${intensity}">${h(day.intensity||'Media')}</span>
           <button onclick="itinStartEdit(${day.dayNum})" class="row-btn row-btn-edit" title="Modifica giorno"><i class="fa-solid fa-pen-to-square"></i></button>
           <button onclick="itinDeleteDay(${day.dayNum})" class="row-btn row-btn-delete" title="Elimina giorno"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
-      <div class="timeline-slot"><div class="time-tag">🌅 Mattina</div><div class="time-content"><div class="time-title">${day.morning||'–'}</div></div></div>
-      <div class="timeline-slot"><div class="time-tag">☀️ Pomeriggio</div><div class="time-content"><div class="time-title">${day.afternoon||'–'}</div></div></div>
-      <div class="timeline-slot"><div class="time-tag">🌙 Sera</div><div class="time-content"><div class="time-title">${day.evening||'–'}</div></div></div>
+      <div class="timeline-slot"><div class="time-tag">🌅 Mattina</div><div class="time-content"><div class="time-title">${h(day.morning||'–')}</div></div></div>
+      <div class="timeline-slot"><div class="time-tag">☀️ Pomeriggio</div><div class="time-content"><div class="time-title">${h(day.afternoon||'–')}</div></div></div>
+      <div class="timeline-slot"><div class="time-tag">🌙 Sera</div><div class="time-content"><div class="time-title">${h(day.evening||'–')}</div></div></div>
       <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-color);display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--text-secondary);">
-        <div><strong>🚗 Trasporto:</strong> ${day.transport||'–'}</div>
-        <div><strong>🍱 Pranzo:</strong> ${day.lunch||'–'} ${day.lunchLink?`<a href="${day.lunchLink}" target="_blank" class="link-btn">Menu ↗</a>`:''}</div>
-        <div><strong>🍷 Cena:</strong> ${day.dinner||'–'} ${day.dinnerLink?`<a href="${day.dinnerLink}" target="_blank" class="link-btn">Menu ↗</a>`:''}</div>
+        <div><strong>🚗 Trasporto:</strong> ${h(day.transport||'–')}</div>
+        <div><strong>🍱 Pranzo:</strong> ${h(day.lunch||'–')} ${safeExternalUrl(day.lunchLink)?`<a href="${h(safeExternalUrl(day.lunchLink))}" target="_blank" rel="noopener noreferrer" class="link-btn">Menu ↗</a>`:''}</div>
+        <div><strong>🍷 Cena:</strong> ${h(day.dinner||'–')} ${safeExternalUrl(day.dinnerLink)?`<a href="${h(safeExternalUrl(day.dinnerLink))}" target="_blank" rel="noopener noreferrer" class="link-btn">Menu ↗</a>`:''}</div>
+        ${linkedExcursions.length ? `<div class="linked-excursions"><strong>🧭 Escursioni:</strong>${linkedExcursions.map(excursion => `<button class="link-btn" onclick="openExcursion('${h(excursion.id)}')">${h(excursion.name)} · ${h(excursion.status)}</button>`).join('')}</div>` : '<div><strong>🧭 Escursioni:</strong> nessuna collegata</div>'}
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">
-          <a href="https://www.google.com/maps/search/?api=1&query=${mq}" target="_blank" class="link-btn link-btn-maps"><i class="fa-solid fa-map-location-dot"></i> Mappa</a>
-          <a href="https://wa.me/?text=${wa}" target="_blank" class="link-btn" style="background:rgba(37,211,102,.15);color:#25D366;border-color:rgba(37,211,102,.3);"><i class="fa-brands fa-whatsapp"></i> Condividi</a>
+          <a href="https://www.google.com/maps/search/?api=1&query=${mq}" target="_blank" rel="noopener noreferrer" class="link-btn link-btn-maps"><i class="fa-solid fa-map-location-dot"></i> Mappa</a>
+          <a href="https://wa.me/?text=${wa}" target="_blank" rel="noopener noreferrer" class="link-btn" style="background:rgba(37,211,102,.15);color:#25D366;border-color:rgba(37,211,102,.3);"><i class="fa-brands fa-whatsapp"></i> Condividi</a>
         </div>
-        ${day.notes?`<div style="color:var(--accent-amber);font-weight:600;">📌 <em>${day.notes}</em></div>`:''}
+        ${day.notes?`<div style="color:var(--accent-amber);font-weight:600;">📌 <em>${h(day.notes)}</em></div>`:''}
       </div>
     </div>`;
 }
@@ -379,7 +532,7 @@ window.itinStartEdit = function(dayNum) {
   if (!c) return;
   const day = getItinerary().find(d => d.dayNum===dayNum);
   if (!day) return;
-  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = h;
   c.innerHTML = `
     <div class="glass-card" style="border-color:rgba(6,182,212,.35);">
       <div style="font-family:var(--font-heading);font-size:15px;font-weight:800;color:var(--accent-cyan);margin-bottom:12px;">✏️ Modifica Giorno ${dayNum}</div>
@@ -427,17 +580,70 @@ window.itinDeleteDay = function(dayNum) {
   if(!confirm(`Eliminare il Giorno ${dayNum} dall'itinerario?`)) return;
   const days = getItinerary().filter(d=>d.dayNum!==dayNum);
   saveItinerary(days);
+  saveExcursions(getExcursions().map(excursion => Number(excursion.dayNum) === Number(dayNum) ? { ...excursion, dayNum: null } : excursion));
   renderItineraryDaySelector();
   const first = _filteredDays()[0];
   if(first){ currentDayNum=first.dayNum; renderItineraryDay(first.dayNum); }
   else document.getElementById('itinerary-content').innerHTML='';
 };
 
+window.itinStartAdd = function() {
+  const c = document.getElementById('itinerary-content');
+  if (!c) return;
+  const suggestedDay = Math.max(0, ...getItinerary().map(day => Number(day.dayNum) || 0)) + 1;
+  c.innerHTML = `
+    <div class="glass-card" style="border-color:rgba(16,185,129,.35);">
+      <div style="font-family:var(--font-heading);font-weight:800;color:var(--accent-emerald);margin-bottom:10px;">➕ Nuovo giorno</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+        <input id="iadd-num" type="number" min="1" class="search-input" value="${suggestedDay}" aria-label="Numero giorno">
+        <input id="iadd-date" type="date" class="search-input" aria-label="Data">
+        <input id="iadd-name" class="search-input" placeholder="Giorno settimana" aria-label="Giorno settimana">
+        <select id="iadd-region" class="search-input" aria-label="Area"><option>Ubud</option><option>Gili Air</option><option value="Uluwatu">Jimbaran/Uluwatu</option><option>Voli</option></select>
+      </div>
+      <input id="iadd-location" class="search-input" placeholder="Luogo" style="margin-top:6px;">
+      <textarea id="iadd-morning" class="search-input" placeholder="Mattina" style="margin-top:6px;"></textarea>
+      <textarea id="iadd-afternoon" class="search-input" placeholder="Pomeriggio" style="margin-top:6px;"></textarea>
+      <textarea id="iadd-evening" class="search-input" placeholder="Sera" style="margin-top:6px;"></textarea>
+      <div style="display:flex;gap:6px;margin-top:8px;"><button onclick="itinConfirmAdd()" class="btn-primary" style="flex:1;">Salva</button><button onclick="renderItineraryDay(currentDayNum)" class="btn-cancel" style="flex:1;">Annulla</button></div>
+    </div>`;
+};
+
+window.itinConfirmAdd = function() {
+  const days = getItinerary();
+  const dayNum = Number.parseInt(document.getElementById('iadd-num')?.value, 10);
+  const isoDate = document.getElementById('iadd-date')?.value;
+  const location = document.getElementById('iadd-location')?.value.trim();
+  if (!dayNum || days.some(day => Number(day.dayNum) === dayNum) || !isoDate || !location) {
+    alert('Inserisci numero univoco, data e luogo.');
+    return;
+  }
+  const [year, month, day] = isoDate.split('-');
+  days.push({
+    dayNum,
+    date: `${day}/${month}/${year}`,
+    dayName: document.getElementById('iadd-name')?.value.trim() || '',
+    phase: 'Personalizzato',
+    location,
+    regionGroup: document.getElementById('iadd-region')?.value || 'Ubud',
+    intensity: 'Media',
+    morning: document.getElementById('iadd-morning')?.value.trim() || '',
+    afternoon: document.getElementById('iadd-afternoon')?.value.trim() || '',
+    evening: document.getElementById('iadd-evening')?.value.trim() || '',
+    transport: '', lunch: '', dinner: '', notes: ''
+  });
+  days.sort((a, b) => Number(a.dayNum) - Number(b.dayNum));
+  saveItinerary(days);
+  currentDayNum = dayNum;
+  currentItineraryRegion = 'Tutti';
+  renderItineraryDaySelector();
+  renderItineraryDay(dayNum);
+};
+
 /* ═══════════════════════════════════════════════════════
    7. ALLOGGI (full CRUD)
    ═══════════════════════════════════════════════════════ */
 const HOTELS_KEY = 'bali_accommodations_v1';
-function getHotels()   { return getSection(HOTELS_KEY, BALI_TRIP_DATA.accommodations); }
+function getHotels()   { return getSection(HOTELS_KEY, BALI_TRIP_DATA.accommodations).map(hotel => ({ ...hotel, nights: Math.max(1, Number.parseInt(hotel.nights, 10) || 1), totalPriceEUR: Number(hotel.totalPriceEUR) || 0, nightlyPriceEUR: Number(hotel.nightlyPriceEUR) || 0 })); }
 function saveHotels(d) { saveSection(HOTELS_KEY, d); }
 
 function renderAccommodations() {
@@ -451,7 +657,7 @@ function renderAccommodations() {
         <i class="fa-solid fa-plus"></i> Aggiungi Alloggio
       </button>
     </div>
-    <div id="hotel-add-form" style="display:none;" class="glass-card" style="border-color:rgba(16,185,129,.35);">
+    <div id="hotel-add-form" class="glass-card" style="display:none;border-color:rgba(16,185,129,.35);">
       <div style="font-size:13px;font-weight:800;color:var(--accent-emerald);margin-bottom:10px;">➕ Nuovo Alloggio</div>
       <input id="hadd-name" class="search-input" placeholder="Nome struttura" style="margin-bottom:6px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
@@ -475,10 +681,10 @@ function renderAccommodations() {
 }
 
 function _hotelCard(h, edit) {
-  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = escapeHTML;
   if(edit) return `
     <div id="hcard-${h.id}" class="glass-card" style="border-color:rgba(6,182,212,.35);">
-      <div style="font-size:13px;font-weight:800;color:var(--accent-cyan);margin-bottom:10px;">✏️ Modifica: ${h.name}</div>
+      <div style="font-size:13px;font-weight:800;color:var(--accent-cyan);margin-bottom:10px;">✏️ Modifica: ${escapeHTML(h.name)}</div>
       <input id="hedit-name-${h.id}" class="search-input" value="${esc(h.name)}" placeholder="Nome" style="margin-bottom:6px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
         <input id="hedit-area-${h.id}" class="search-input" value="${esc(h.area)}" placeholder="Area">
@@ -503,11 +709,11 @@ function _hotelCard(h, edit) {
     <div id="hcard-${h.id}" class="glass-card hotel-card">
       <div class="hotel-header">
         <div>
-          <div class="hotel-name">${h.name}</div>
-          <div class="hotel-dates">📍 ${h.area} • ${h.checkIn||'?'} → ${h.checkOut||'?'}</div>
+          <div class="hotel-name">${escapeHTML(h.name)}</div>
+          <div class="hotel-dates">📍 ${escapeHTML(h.area)} • ${escapeHTML(h.checkIn||'?')} → ${escapeHTML(h.checkOut||'?')}</div>
         </div>
         <div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">
-          <span class="badge badge-prenotato">${h.status||'Prenotato'}</span>
+          <span class="badge badge-prenotato">${escapeHTML(h.status||'Prenotato')}</span>
           <div style="display:flex;gap:4px;">
             <button onclick="hotelStartEdit('${h.id}')" class="row-btn row-btn-edit" title="Modifica"><i class="fa-solid fa-pen-to-square"></i></button>
             <button onclick="hotelDeleteItem('${h.id}')" class="row-btn row-btn-delete" title="Elimina"><i class="fa-solid fa-trash"></i></button>
@@ -516,16 +722,16 @@ function _hotelCard(h, edit) {
       </div>
       <div class="hotel-details-grid">
         <div class="hotel-detail-item"><div class="hotel-detail-label">Notti</div><div class="hotel-detail-val">${h.nights}</div></div>
-        <div class="hotel-detail-item"><div class="hotel-detail-label">Prezzo/Notte</div><div class="hotel-detail-val">€${(h.nightlyPriceEUR||h.totalPriceEUR/h.nights||0).toFixed(0)}</div></div>
+        <div class="hotel-detail-item"><div class="hotel-detail-label">Prezzo/Notte</div><div class="hotel-detail-val">€${(Number(h.nightlyPriceEUR)||Number(h.totalPriceEUR)/Number(h.nights)||0).toFixed(0)}</div></div>
         <div class="hotel-detail-item"><div class="hotel-detail-label">Totale</div><div class="hotel-detail-val" style="color:var(--accent-emerald);">€${h.totalPriceEUR}</div></div>
       </div>
       <div style="font-size:12px;color:var(--text-secondary);">
-        <div><strong>Codice:</strong> <span style="color:var(--accent-cyan);font-weight:800;">${h.bookingCode||'Da inserire'}</span></div>
-        <div style="margin-top:2px;"><strong>Note:</strong> ${h.notes||'–'}</div>
+        <div><strong>Codice:</strong> <span style="color:var(--accent-cyan);font-weight:800;">${escapeHTML(h.bookingCode||'Da inserire')}</span></div>
+        <div style="margin-top:2px;"><strong>Note:</strong> ${escapeHTML(h.notes||'–')}</div>
       </div>
       <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
-        ${h.link?`<a href="${h.link}" target="_blank" class="link-btn"><i class="fa-solid fa-bed"></i> Booking.com ↗</a>`:''}
-        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(h.name+' '+h.area)}" target="_blank" class="link-btn link-btn-maps"><i class="fa-solid fa-map-pin"></i> Maps ↗</a>
+        ${safeExternalUrl(h.link)?`<a href="${escapeHTML(safeExternalUrl(h.link))}" target="_blank" rel="noopener noreferrer" class="link-btn"><i class="fa-solid fa-bed"></i> Sito ↗</a>`:''}
+        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(h.name+' '+h.area)}" target="_blank" rel="noopener noreferrer" class="link-btn link-btn-maps"><i class="fa-solid fa-map-pin"></i> Maps ↗</a>
       </div>
     </div>`;
 }
@@ -539,8 +745,9 @@ window.hotelStartEdit = function(id) {
 window.hotelSaveEdit = function(id) {
   const hotels = getHotels(); const idx = hotels.findIndex(x=>x.id===id);
   if(idx===-1) return;
-  const nights = parseInt(document.getElementById('hedit-nights-'+id)?.value)||hotels[idx].nights;
-  const price  = parseFloat(document.getElementById('hedit-price-'+id)?.value)||hotels[idx].totalPriceEUR;
+  const nights = parseInt(document.getElementById('hedit-nights-'+id)?.value, 10);
+  const price  = parseFloat(document.getElementById('hedit-price-'+id)?.value);
+  if (!Number.isInteger(nights) || nights < 1 || !Number.isFinite(price) || price < 0) { alert('Notti o prezzo non validi.'); return; }
   hotels[idx]  = { ...hotels[idx],
     name:         document.getElementById('hedit-name-'+id)?.value.trim()||hotels[idx].name,
     area:         document.getElementById('hedit-area-'+id)?.value.trim()||hotels[idx].area,
@@ -565,10 +772,12 @@ window.hotelConfirmAdd = function() {
   const code    = document.getElementById('hadd-code')?.value.trim()||'';
   const checkIn = document.getElementById('hadd-checkin')?.value.trim()||'';
   const checkOut= document.getElementById('hadd-checkout')?.value.trim()||'';
-  const nights  = parseInt(document.getElementById('hadd-nights')?.value)||1;
-  const price   = parseFloat(document.getElementById('hadd-price')?.value)||0;
+  const nightsRaw = document.getElementById('hadd-nights')?.value;
+  const priceRaw = document.getElementById('hadd-price')?.value;
+  const nights  = nightsRaw ? parseInt(nightsRaw, 10) : 1;
+  const price   = priceRaw ? parseFloat(priceRaw) : 0;
   const notes   = document.getElementById('hadd-notes')?.value.trim()||'';
-  if(!name){alert('Inserisci almeno il nome!');return;}
+  if(!name || !Number.isInteger(nights) || nights < 1 || !Number.isFinite(price) || price < 0){alert('Inserisci nome, notti e prezzo validi.');return;}
   const hotels = getHotels();
   hotels.push({ id:'HOTEL-'+Date.now(), name, area, bookingCode:code, checkIn, checkOut, nights,
                 totalPriceEUR:price, nightlyPriceEUR:nights>0?price/nights:0, status:'Prenotato',
@@ -579,7 +788,7 @@ window.hotelConfirmAdd = function() {
 /* ═══════════════════════════════════════════════════════
    8. FOOD (full CRUD + mark visited)
    ═══════════════════════════════════════════════════════ */
-const FOOD_KEY = 'bali_food_v1';
+const FOOD_KEY = 'bali_food_v2';
 function getFoodItems()   { return getSection(FOOD_KEY, BALI_TRIP_DATA.foodHighlights); }
 function saveFoodItems(d) { saveSection(FOOD_KEY, d); }
 
@@ -593,7 +802,7 @@ function renderFood() {
         <i class="fa-solid fa-plus"></i> Aggiungi Ristorante
       </button>
     </div>
-    <div id="food-add-form" style="display:none;" class="glass-card" style="border-color:rgba(16,185,129,.35);">
+    <div id="food-add-form" class="glass-card" style="display:none;border-color:rgba(16,185,129,.35);">
       <div style="font-size:13px;font-weight:800;color:var(--accent-emerald);margin-bottom:8px;">➕ Nuovo Locale</div>
       <input id="fadd-place" class="search-input" placeholder="Nome locale" style="margin-bottom:6px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
@@ -617,7 +826,7 @@ function renderFood() {
 }
 
 function _foodCard(item, edit) {
-  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = h;
   const visited = item.visited;
   if(edit) return `
     <div id="fcard-${item.id}" class="glass-card" style="border-color:rgba(6,182,212,.35);">
@@ -642,9 +851,9 @@ function _foodCard(item, edit) {
   return `
     <div id="fcard-${item.id}" class="glass-card food-card" style="${visited?'opacity:.6;':''}" >
       <div class="food-title-row">
-        <div class="food-place" style="${visited?'text-decoration:line-through;color:var(--text-muted);':''}">${item.place}</div>
+        <div class="food-place" style="${visited?'text-decoration:line-through;color:var(--text-muted);':''}">${h(item.place)}</div>
         <div style="display:flex;gap:5px;align-items:center;">
-          <div class="food-price">${item.price}</div>
+          <div class="food-price">${h(item.price)}</div>
           <button onclick="foodToggleVisited('${item.id}')" title="${visited?'Segna come da visitare':'Segna come visitato'}"
                   class="row-btn" style="${visited?'background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.35);color:var(--accent-emerald);':'border-color:var(--border-color);color:var(--text-muted);'}" >
             <i class="fa-solid fa-check"></i>
@@ -653,12 +862,12 @@ function _foodCard(item, edit) {
           <button onclick="foodDeleteItem('${item.id}')" class="row-btn row-btn-delete" title="Elimina"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
-      <div class="food-style">📍 ${item.area} • ${item.meal||''} ${item.date?`(${item.date})`:''} — ${item.style||''}</div>
+      <div class="food-style">📍 ${h(item.area)} • ${h(item.meal||'')} ${item.date?`(${h(item.date)})`:''} — ${h(item.style||'')}</div>
       ${visited?`<div style="margin-top:4px;"><span class="badge badge-pagato">✅ VISITATO</span></div>`:''}
-      ${item.priority?`<div style="margin-top:4px;"><span class="badge badge-imperdibile">${item.priority}</span></div>`:''}
+      ${item.priority?`<div style="margin-top:4px;"><span class="badge badge-imperdibile">${h(item.priority)}</span></div>`:''}
       <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;">
-        ${item.link?`<a href="${item.link}" target="_blank" class="link-btn">Menu ↗</a>`:''}
-        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((item.place||'')+' '+(item.area||''))}" target="_blank" class="link-btn link-btn-maps"><i class="fa-solid fa-compass"></i> Mappa ↗</a>
+        ${safeExternalUrl(item.link)?`<a href="${h(safeExternalUrl(item.link))}" target="_blank" rel="noopener noreferrer" class="link-btn">Menu ↗</a>`:''}
+        <a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((item.place||'')+' '+(item.area||''))}" target="_blank" rel="noopener noreferrer" class="link-btn link-btn-maps"><i class="fa-solid fa-compass"></i> Mappa ↗</a>
       </div>
     </div>`;
 }
@@ -679,7 +888,7 @@ window.foodSaveEdit = function(id) {
     price: document.getElementById('fedit-price-'+id)?.value.trim()||items[idx].price,
     date:  document.getElementById('fedit-date-'+id)?.value.trim()||items[idx].date,
     style: document.getElementById('fedit-style-'+id)?.value.trim()||items[idx].style,
-    link:  document.getElementById('fedit-link-'+id)?.value.trim()||items[idx].link||''
+    link:  safeExternalUrl(document.getElementById('fedit-link-'+id)?.value.trim())
   };
   saveFoodItems(items); renderFood();
 };
@@ -705,14 +914,104 @@ window.foodConfirmAdd = function() {
     price: document.getElementById('fadd-price')?.value.trim()||'',
     date:  document.getElementById('fadd-date')?.value.trim()||'',
     style: document.getElementById('fadd-style')?.value.trim()||'',
-    link:  document.getElementById('fadd-link')?.value.trim()||'',
+    link:  safeExternalUrl(document.getElementById('fadd-link')?.value.trim()),
     visited:false, maps:''
   });
   saveFoodItems(items); renderFood();
 };
 
 /* ═══════════════════════════════════════════════════════
-   9. CHECKLIST (add/edit/delete + toggle)
+   9. ESCURSIONI (CRUD + collegamento itinerario)
+   ═══════════════════════════════════════════════════════ */
+const EXCURSIONS_KEY = 'bali_excursions_v1';
+const EXCURSION_STATUSES = ['Da valutare', 'Da confermare', 'Da prenotare', 'Prenotata', 'Completata', 'Annullata'];
+function getExcursions() { return getSection(EXCURSIONS_KEY, BALI_TRIP_DATA.excursions || []).map(item => ({ ...item, dayNum: item.dayNum ? Number.parseInt(item.dayNum, 10) || null : null })); }
+function saveExcursions(items) { saveSection(EXCURSIONS_KEY, items); }
+
+function excursionDayOptions(selected) {
+  return `<option value="">Non collegata</option>${getItinerary().map(day =>
+    `<option value="${day.dayNum}" ${Number(selected)===Number(day.dayNum)?'selected':''}>Giorno ${day.dayNum} · ${h(day.date)} · ${h(day.location)}</option>`
+  ).join('')}`;
+}
+
+function renderExcursions() {
+  const c = document.getElementById('excursions-content');
+  if (!c) return;
+  const items = getExcursions();
+  const booked = items.filter(item => item.status === 'Prenotata' || item.status === 'Completata').length;
+  const total = items.reduce((sum, item) => sum + (Number(item.priceEUR) || 0), 0);
+  c.innerHTML = `
+    <div class="metrics-grid">
+      <div class="metric-card"><div class="metric-label">Pianificate</div><div class="metric-value">${items.length}</div></div>
+      <div class="metric-card"><div class="metric-label">Prenotate</div><div class="metric-value" style="color:var(--accent-emerald);">${booked}</div></div>
+      <div class="metric-card"><div class="metric-label">Valore previsto</div><div class="metric-value">€${total.toFixed(2)}</div></div>
+      <div class="metric-card"><div class="metric-label">Collegate</div><div class="metric-value">${items.filter(item=>item.dayNum).length}/${items.length}</div></div>
+    </div>
+    <button onclick="excursionStartAdd()" class="btn-primary" style="width:100%;margin-bottom:12px;">＋ Aggiungi escursione</button>
+    <div id="excursion-add-form" class="glass-card" style="display:none;border-color:rgba(16,185,129,.35);">
+      <input id="exadd-name" class="search-input" placeholder="Nome escursione" style="margin-bottom:6px;">
+      <select id="exadd-day" class="search-input" style="margin-bottom:6px;">${excursionDayOptions('')}</select>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;"><input id="exadd-region" class="search-input" placeholder="Area"><input id="exadd-time" class="search-input" placeholder="Orario"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;"><select id="exadd-status" class="search-input">${EXCURSION_STATUSES.map(status=>`<option>${status}</option>`).join('')}</select><input id="exadd-price" type="number" min="0" step="0.01" class="search-input" placeholder="Prezzo €"></div>
+      <input id="exadd-link" class="search-input" placeholder="Link prenotazione (https://...)" style="margin-bottom:6px;">
+      <textarea id="exadd-notes" class="search-input" placeholder="Note"></textarea>
+      <div style="display:flex;gap:6px;margin-top:8px;"><button onclick="excursionConfirmAdd()" class="btn-primary" style="flex:1;">Salva</button><button onclick="excursionCancelAdd()" class="btn-cancel" style="flex:1;">Annulla</button></div>
+    </div>
+    <div id="excursions-list">${items.map(item => excursionCard(item)).join('')}</div>`;
+}
+
+function excursionCard(item, edit = false) {
+  const day = getItinerary().find(candidate => Number(candidate.dayNum) === Number(item.dayNum));
+  if (edit) return `<div id="excard-${item.id}" class="glass-card excursion-card">
+    <input id="exedit-name-${item.id}" class="search-input" value="${h(item.name)}" style="margin-bottom:6px;">
+    <select id="exedit-day-${item.id}" class="search-input" style="margin-bottom:6px;">${excursionDayOptions(item.dayNum)}</select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;"><input id="exedit-region-${item.id}" class="search-input" value="${h(item.region)}"><input id="exedit-time-${item.id}" class="search-input" value="${h(item.time)}"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;"><select id="exedit-status-${item.id}" class="search-input">${EXCURSION_STATUSES.map(status=>`<option ${status===item.status?'selected':''}>${status}</option>`).join('')}</select><input id="exedit-price-${item.id}" type="number" min="0" step="0.01" class="search-input" value="${Number(item.priceEUR)||0}"></div>
+    <input id="exedit-link-${item.id}" class="search-input" value="${h(item.link||'')}" placeholder="Link" style="margin-bottom:6px;">
+    <textarea id="exedit-notes-${item.id}" class="search-input">${h(item.notes||'')}</textarea>
+    <div style="display:flex;gap:6px;margin-top:8px;"><button onclick="excursionSaveEdit('${item.id}')" class="btn-primary" style="flex:1;">Salva</button><button onclick="renderExcursions()" class="btn-cancel" style="flex:1;">Annulla</button></div>
+  </div>`;
+
+  const booked = ['Prenotata', 'Completata'].includes(item.status);
+  const paidState = getBudgetPaidState();
+  const paid = item.budgetItemId ? Boolean(paidState[item.budgetItemId] ?? getBudgetItems().find(row=>row.id===item.budgetItemId)?.paidDefault) : false;
+  return `<article id="excard-${item.id}" class="glass-card excursion-card ${booked?'booked':''}">
+    <div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div class="excursion-title">${h(item.name)}</div><span class="badge ${booked?'badge-pagato':'badge-daprenotare'}">${h(item.status)}</span></div>
+    <div class="excursion-meta"><span>📍 ${h(item.region||day?.location||'Da definire')}</span><span>🕒 ${h(item.time||'Da definire')}</span><span>💶 €${(Number(item.priceEUR)||0).toFixed(2)}</span>${item.budgetItemId?`<span>${paid?'✅ Pagata':'⏳ Da pagare'}</span>`:''}</div>
+    ${day?`<button class="link-btn" onclick="openItineraryDay(${day.dayNum})">🗓 Giorno ${day.dayNum} · ${h(day.date)}</button>`:'<span class="status-note">Non collegata all’itinerario</span>'}
+    ${item.notes?`<p style="font-size:12px;color:var(--text-secondary);margin-top:8px;">${h(item.notes)}</p>`:''}
+    <div class="excursion-actions" style="margin-top:10px;">
+      ${safeExternalUrl(item.link)?`<a href="${h(safeExternalUrl(item.link))}" target="_blank" rel="noopener noreferrer" class="link-btn">Prenotazione ↗</a>`:'<span></span>'}
+      <div style="display:flex;justify-content:flex-end;gap:5px;"><button onclick="excursionStartEdit('${item.id}')" class="row-btn row-btn-edit" aria-label="Modifica ${h(item.name)}"><i class="fa-solid fa-pen-to-square"></i></button><button onclick="excursionDelete('${item.id}')" class="row-btn row-btn-delete" aria-label="Elimina ${h(item.name)}"><i class="fa-solid fa-trash"></i></button></div>
+    </div>
+  </article>`;
+}
+
+window.excursionStartAdd = () => { const form=document.getElementById('excursion-add-form'); if(form){form.style.display='block';document.getElementById('exadd-name')?.focus();} };
+window.excursionCancelAdd = () => { const form=document.getElementById('excursion-add-form'); if(form) form.style.display='none'; };
+window.excursionConfirmAdd = function() {
+  const name=document.getElementById('exadd-name')?.value.trim();
+  const price=Number.parseFloat(document.getElementById('exadd-price')?.value || '0');
+  if(!name || !Number.isFinite(price) || price < 0){alert('Inserisci nome e prezzo validi.');return;}
+  const items=getExcursions();
+  items.push({id:`EX-${Date.now()}`,name,dayNum:Number(document.getElementById('exadd-day')?.value)||null,region:document.getElementById('exadd-region')?.value.trim()||'',time:document.getElementById('exadd-time')?.value.trim()||'',status:document.getElementById('exadd-status')?.value||'Da valutare',priceEUR:price,budgetItemId:'',notes:document.getElementById('exadd-notes')?.value.trim()||'',link:safeExternalUrl(document.getElementById('exadd-link')?.value.trim())});
+  saveExcursions(items); renderExcursions(); renderDashboard(); renderItineraryDay(currentDayNum);
+};
+window.excursionStartEdit = id => { const item=getExcursions().find(candidate=>candidate.id===id); const card=document.getElementById(`excard-${id}`); if(item&&card) card.outerHTML=excursionCard(item,true); };
+window.excursionSaveEdit = function(id) {
+  const items=getExcursions(), index=items.findIndex(item=>item.id===id); if(index<0)return;
+  const price=Number.parseFloat(document.getElementById(`exedit-price-${id}`)?.value || '0');
+  const name=document.getElementById(`exedit-name-${id}`)?.value.trim();
+  if(!name || !Number.isFinite(price) || price<0){alert('Inserisci nome e prezzo validi.');return;}
+  items[index]={...items[index],name,dayNum:Number(document.getElementById(`exedit-day-${id}`)?.value)||null,region:document.getElementById(`exedit-region-${id}`)?.value.trim()||'',time:document.getElementById(`exedit-time-${id}`)?.value.trim()||'',status:document.getElementById(`exedit-status-${id}`)?.value||'Da valutare',priceEUR:price,link:safeExternalUrl(document.getElementById(`exedit-link-${id}`)?.value.trim()),notes:document.getElementById(`exedit-notes-${id}`)?.value.trim()||''};
+  saveExcursions(items); renderExcursions(); renderDashboard(); renderItineraryDay(currentDayNum);
+};
+window.excursionDelete = id => { if(!confirm('Eliminare questa escursione?'))return; saveExcursions(getExcursions().filter(item=>item.id!==id)); renderExcursions(); renderDashboard(); renderItineraryDay(currentDayNum); };
+window.openItineraryDay = dayNum => { activateView('itinerary'); currentItineraryRegion='Tutti'; renderItineraryDaySelector(); selectItineraryDay(Number(dayNum)); };
+window.openExcursion = id => { activateView('excursions'); requestAnimationFrame(()=>document.getElementById(`excard-${id}`)?.scrollIntoView({behavior:'smooth',block:'center'})); };
+
+/* ═══════════════════════════════════════════════════════
+   10. CHECKLIST (add/edit/delete + toggle)
    ═══════════════════════════════════════════════════════ */
 const CHECKLIST_KEY = 'bali_checklist_items_v1';
 const CHECKLIST_STATE_KEY = 'bali_checklist_state';
@@ -758,7 +1057,7 @@ function renderChecklist() {
 function _checklistRow(item, state, edit) {
   const checked = state[item.id] || item.status==='Pagato';
   if(edit) {
-    const esc = s=>(s||'').replace(/"/g,'&quot;');
+    const esc = h;
     return `<div id="clrow-${item.id}" style="background:rgba(6,182,212,.07);border:1px solid rgba(6,182,212,.35);border-radius:12px;padding:12px;margin-bottom:8px;">
       <div style="font-size:11px;font-weight:800;color:var(--accent-cyan);margin-bottom:8px;">✏️ Modifica voce</div>
       <input id="cledit-item-${item.id}"   class="search-input" value="${esc(item.item)}" style="margin-bottom:6px;">
@@ -777,9 +1076,9 @@ function _checklistRow(item, state, edit) {
     <div id="clrow-${item.id}" class="checklist-item ${checked?'checked':''}" style="position:relative;">
       <div onclick="toggleChecklistItem('${item.id}')" class="custom-checkbox" style="cursor:pointer;">${checked?'✓':''}</div>
       <div class="item-content" onclick="toggleChecklistItem('${item.id}')" style="cursor:pointer;flex:1;">
-        <div class="item-text">${item.item}</div>
-        <div class="item-meta">🏷️ ${item.area||''} ${item.timing?`• 🕒 ${item.timing}`:''} ${item.detail?`— ${item.detail}`:''}</div>
-        ${item.link?`<a href="${item.link}" target="_blank" class="link-btn" onclick="event.stopPropagation();">Sito Ufficiale ↗</a>`:''}
+        <div class="item-text">${h(item.item)}</div>
+        <div class="item-meta">🏷️ ${h(item.area||'')} ${item.timing?`• 🕒 ${h(item.timing)}`:''} ${item.detail?`— ${h(item.detail)}`:''}</div>
+        ${safeExternalUrl(item.link)?`<a href="${h(safeExternalUrl(item.link))}" target="_blank" rel="noopener noreferrer" class="link-btn" onclick="event.stopPropagation();">Sito Ufficiale ↗</a>`:''}
       </div>
       <div style="display:flex;gap:4px;flex-shrink:0;">
         <button onclick="checklistStartEdit('${item.id}')" class="row-btn row-btn-edit" title="Modifica"><i class="fa-solid fa-pen-to-square"></i></button>
@@ -791,7 +1090,7 @@ function _checklistRow(item, state, edit) {
 window.toggleChecklistItem = function(id) {
   const state=getChecklistState();
   state[id]=!state[id];
-  localStorage.setItem(CHECKLIST_STATE_KEY,JSON.stringify(state));
+  saveJSON(CHECKLIST_STATE_KEY, state);
   renderChecklist();
 };
 window.checklistStartEdit = function(id) {
@@ -861,7 +1160,7 @@ function renderPianoB() {
 }
 
 function _pianoBCard(p, edit) {
-  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = h;
   if(edit) return `
     <div id="pbcard-${p.id}" class="glass-card piano-b-card">
       <input id="pbedit-title-${p.id}" class="search-input" value="${esc(p.title)}" placeholder="Titolo" style="margin-bottom:6px;">
@@ -875,14 +1174,14 @@ function _pianoBCard(p, edit) {
   return `
     <div id="pbcard-${p.id}" class="glass-card piano-b-card">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-        <div class="piano-b-title" style="flex:1;">${p.title}</div>
+        <div class="piano-b-title" style="flex:1;">${h(p.title)}</div>
         <div style="display:flex;gap:4px;flex-shrink:0;margin-left:8px;">
           <button onclick="pianoBStartEdit('${p.id}')" class="row-btn row-btn-edit"><i class="fa-solid fa-pen-to-square"></i></button>
           <button onclick="pianoBDeleteItem('${p.id}')" class="row-btn row-btn-delete"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
-      <div class="piano-b-trigger">⚠️ ${p.trigger}</div>
-      <div class="piano-b-action"><strong>👉</strong> ${p.action}</div>
+      <div class="piano-b-trigger">⚠️ ${h(p.trigger)}</div>
+      <div class="piano-b-action"><strong>👉</strong> ${h(p.action)}</div>
     </div>`;
 }
 
@@ -949,7 +1248,7 @@ function renderDrivers() {
 }
 
 function _driverCard(d, edit) {
-  const esc = s => (s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = h;
   if(edit) return `
     <div id="drv-${d.id}" style="background:rgba(37,211,102,.06);border:1px solid rgba(37,211,102,.3);border-radius:12px;padding:12px;margin-bottom:8px;">
       <input id="dedit-name-${d.id}"  class="search-input" value="${esc(d.name)}" placeholder="Nome" style="margin-bottom:6px;">
@@ -965,13 +1264,13 @@ function _driverCard(d, edit) {
   return `
     <div id="drv-${d.id}" style="padding:10px;background:rgba(8,12,20,.6);border-radius:12px;border:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="flex:1;min-width:0;">
-        <div style="font-size:13px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${d.name}</div>
-        <div style="font-size:11px;color:var(--text-secondary);">${d.role}</div>
+        <div style="font-size:13px;font-weight:800;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h(d.name)}</div>
+        <div style="font-size:11px;color:var(--text-secondary);">${h(d.role)}</div>
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;margin-left:8px;align-items:center;">
-        <a href="https://wa.me/${phone}?text=${encodeURIComponent(d.waText||'')}" target="_blank"
+        ${phone ? `<a href="https://wa.me/${phone}?text=${encodeURIComponent(d.waText||'')}" target="_blank" rel="noopener noreferrer"
            class="btn-primary" style="text-decoration:none;padding:6px 10px;font-size:11px;background:#25D366;color:#000;display:flex;align-items:center;gap:4px;">
-          <i class="fa-brands fa-whatsapp"></i> WA</a>
+          <i class="fa-brands fa-whatsapp"></i> WA</a>` : '<span class="badge badge-dagestire">Aggiungi numero</span>'}
         <button onclick="driverStartEdit('${d.id}')" class="row-btn row-btn-edit" title="Modifica"><i class="fa-solid fa-pen-to-square"></i></button>
         <button onclick="driverDeleteItem('${d.id}')" class="row-btn row-btn-delete" title="Elimina"><i class="fa-solid fa-trash"></i></button>
       </div>
@@ -1042,7 +1341,7 @@ function renderPhotoSpots() {
 }
 
 function _photoCard(s, edit) {
-  const esc = x => (x||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  const esc = h;
   if(edit) return `
     <div id="pscard-${s.id}" style="background:rgba(245,158,11,.07);border:1px solid rgba(245,158,11,.35);border-radius:10px;padding:10px;margin-bottom:8px;">
       <input id="psedit-place-${s.id}" class="search-input" value="${esc(s.place)}" placeholder="Luogo" style="margin-bottom:6px;">
@@ -1056,14 +1355,14 @@ function _photoCard(s, edit) {
   return `
     <div id="pscard-${s.id}" style="padding:8px 10px;background:rgba(8,12,20,.5);border-radius:10px;border:1px solid var(--border-color);font-size:12px;margin-bottom:6px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:800;color:var(--accent-amber);">${s.place}</div>
+        <div style="font-weight:800;color:var(--accent-amber);">${h(s.place)}</div>
         <div style="display:flex;gap:4px;">
           <button onclick="photoStartEdit('${s.id}')" class="row-btn row-btn-edit"><i class="fa-solid fa-pen-to-square"></i></button>
           <button onclick="photoDeleteItem('${s.id}')" class="row-btn row-btn-delete"><i class="fa-solid fa-trash"></i></button>
         </div>
       </div>
-      <div style="color:var(--accent-cyan);font-weight:600;">🕒 ${s.bestTime}</div>
-      <div style="color:var(--text-secondary);margin-top:2px;">💡 ${s.tip}</div>
+      <div style="color:var(--accent-cyan);font-weight:600;">🕒 ${h(s.bestTime)}</div>
+      <div style="color:var(--text-secondary);margin-top:2px;">💡 ${h(s.tip)}</div>
     </div>`;
 }
 
@@ -1100,9 +1399,9 @@ function renderSurvivalGuide() {
   if (!c) return;
   c.innerHTML = BALI_TRIP_DATA.survivalGuide.map(g => `
     <div class="glass-card">
-      <div style="font-family:var(--font-heading);font-size:16px;font-weight:800;margin-bottom:8px;">${g.category}</div>
+      <div style="font-family:var(--font-heading);font-size:16px;font-weight:800;margin-bottom:8px;">${h(g.category)}</div>
       <ul style="list-style:none;display:flex;flex-direction:column;gap:6px;">
-        ${g.tips.map(t=>`<li style="font-size:12px;color:var(--text-secondary);display:flex;gap:8px;"><span style="color:var(--accent-emerald);">•</span><span>${t}</span></li>`).join('')}
+        ${g.tips.map(t=>`<li style="font-size:12px;color:var(--text-secondary);display:flex;gap:8px;"><span style="color:var(--accent-emerald);">•</span><span>${h(t)}</span></li>`).join('')}
       </ul>
     </div>`).join('');
 }
@@ -1113,72 +1412,116 @@ function renderSurvivalGuide() {
 function renderEmergencyContacts() {
   const c = document.getElementById('emergency-contacts-list');
   if (!c) return;
-  c.innerHTML = BALI_TRIP_DATA.emergencyContacts.map(e => `
+  c.innerHTML = BALI_TRIP_DATA.emergencyContacts.map(e => {
+    const phone = String(e.phone || '');
+    const callable = phone.replace(/[^0-9+]/g, '');
+    return `
     <div style="display:flex;justify-content:space-between;align-items:center;padding:10px;background:var(--bg-card);border-radius:10px;border:1px solid var(--border-color);">
       <div>
-        <div style="font-size:13px;font-weight:700;">${e.label}</div>
-        <div style="font-size:12px;color:var(--accent-coral);font-weight:800;">${e.phone}</div>
+        <div style="font-size:13px;font-weight:700;">${h(e.label)}</div>
+        <div style="font-size:12px;color:var(--accent-coral);font-weight:800;">${h(phone)}</div>
       </div>
-      <a href="tel:${e.phone.replace(/[^0-9+]/g,'')}" class="btn-primary" style="text-decoration:none;padding:6px 12px;font-size:11px;">Chiama</a>
-    </div>`).join('');
+      ${callable ? `<a href="tel:${callable}" class="btn-primary" style="text-decoration:none;padding:6px 12px;font-size:11px;">Chiama</a>` : '<span class="status-note">Da configurare</span>'}
+    </div>`;
+  }).join('');
 }
 
-window.openEmergencyModal  = () => document.getElementById('emergency-modal')?.classList.add('active');
+function openModal(id) {
+  const modal = document.getElementById(id);
+  if (!modal) return;
+  modal.classList.add('active');
+  requestAnimationFrame(() => modal.querySelector('button, input, textarea, select, a')?.focus());
+}
+window.openEmergencyModal  = () => openModal('emergency-modal');
 window.closeEmergencyModal = () => document.getElementById('emergency-modal')?.classList.remove('active');
-window.openGmailModal      = () => document.getElementById('gmail-modal')?.classList.add('active');
+window.openGmailModal      = () => openModal('gmail-modal');
 window.closeGmailModal     = () => document.getElementById('gmail-modal')?.classList.remove('active');
-window.openRevolutCSVModal  = () => document.getElementById('revolut-csv-modal')?.classList.add('active');
+window.openRevolutCSVModal  = () => openModal('revolut-csv-modal');
 window.closeRevolutCSVModal = () => document.getElementById('revolut-csv-modal')?.classList.remove('active');
 
 /* ═══════════════════════════════════════════════════════
-   15. GMAIL SYNC & EMAIL PARSER
+   15. EMAIL CONFIRMATION PARSER
    ═══════════════════════════════════════════════════════ */
-window.simulateGmailOAuthSync = function() {
-  const res=document.getElementById('parse-result-status');
-  if(!res) return;
-  res.innerHTML=`<span style="color:var(--accent-cyan);">⏳ Connessione Gmail in corso...</span>`;
-  setTimeout(()=>{
-    const st=getBudgetPaidState();
-    st['ITEM-05']=true; st['ITEM-06']=true; st['ITEM-07']=true;
-    localStorage.setItem(BUDGET_PAID_KEY,JSON.stringify(st));
-    res.innerHTML=`<div style="color:var(--accent-emerald);font-weight:700;">✅ Gmail sincronizzato!</div>
-      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px;">3 prenotazioni identificate: Temuku (BK-8849201), Coral Drift (CD-773910), Paranyogan (PH-992014).</div>`;
-    renderBudget(); renderDashboard();
-  },1200);
-};
+function parseLocalizedNumber(value) {
+  const input = String(value || '').replace(/\s/g, '');
+  if (!input) return NaN;
+  const lastComma = input.lastIndexOf(',');
+  const lastDot = input.lastIndexOf('.');
+  let normalized = input;
+  if (lastComma > lastDot) normalized = input.replace(/\./g, '').replace(',', '.');
+  else if (lastDot > lastComma) normalized = input.replace(/,/g, '');
+  else normalized = input.replace(',', '.');
+  return Number.parseFloat(normalized.replace(/[^0-9.-]/g, ''));
+}
+
 window.parsePastedEmail = function() {
   const text=document.getElementById('email-paste-area')?.value||'';
   const res=document.getElementById('parse-result-status');
   if(!text.trim()){if(res) res.innerHTML=`<span style="color:var(--accent-coral);">Incolla prima l'email!</span>`;return;}
   const cM=text.match(/(?:conferma|booking|pnr|numero|codice)\s*[:#]?\s*([A-Z0-9-]{5,15})/i);
-  const pM=text.match(/(?:EUR|€|IDR|Rp)\s*([\d.,]+)/i)||text.match(/([\d.,]+)\s*(?:EUR|€|IDR|Rp)/i);
+  const pM=text.match(/(EUR|€|IDR|Rp)\s*([\d.,]+)/i)||text.match(/([\d.,]+)\s*(EUR|€|IDR|Rp)/i);
   const code=cM?cM[1]:'PNR-'+Math.floor(100000+Math.random()*900000);
-  const price=pM?parseFloat(pM[1].replace(/,/g,'')):0;
-  const st=getBudgetPaidState(); let match=null;
-  if(text.toLowerCase().includes('temuku'))       {st['ITEM-05']=true;match='Temuku Ubud Villas';}
-  else if(text.toLowerCase().includes('coral'))   {st['ITEM-06']=true;match='Coral Drift Resort';}
-  else if(text.toLowerCase().includes('paranyog')){st['ITEM-07']=true;match='Paranyogan Homestay';}
-  localStorage.setItem(BUDGET_PAID_KEY,JSON.stringify(st));
-  if(res) res.innerHTML=`<div style="color:var(--accent-emerald);font-weight:700;">🎉 Email analizzata!</div>
-    <div style="font-size:11px;margin-top:4px;">Servizio: <strong>${match||'Generico'}</strong> • Codice: <strong>${code}</strong> • Prezzo: <strong>€${price}</strong></div>`;
+  const currencyFirst = pM ? /^(EUR|€|IDR|Rp)$/i.test(pM[1]) : false;
+  const amountRaw = pM ? (currencyFirst ? pM[2] : pM[1]) : '';
+  const currency = pM ? (currencyFirst ? pM[1] : pM[2]) : '';
+  const price = parseLocalizedNumber(amountRaw);
+  const lower = text.toLowerCase();
+  const candidates = [
+    { test: 'temuku', budgetId: 'ITEM-05', hotelId: 'UB-01' },
+    { test: 'coral', budgetId: 'ITEM-06', hotelId: 'GI-01' },
+    { test: 'paranyog', budgetId: 'ITEM-07', hotelId: 'UL-01' }
+  ];
+  const found = candidates.find(candidate => lower.includes(candidate.test));
+  if (!found) {
+    if(res) res.innerHTML='<span style="color:var(--accent-amber);">Nessuna prenotazione conosciuta riconosciuta: nessun dato è stato modificato.</span>';
+    return;
+  }
+  const st=getBudgetPaidState();
+  st[found.budgetId]=true;
+  saveJSON(BUDGET_PAID_KEY, st);
+  const hotels = getHotels();
+  const hotel = hotels.find(item => item.id === found.hotelId);
+  if (hotel) hotel.bookingCode = code;
+  saveHotels(hotels);
+  if(res) res.innerHTML=`<div style="color:var(--accent-emerald);font-weight:700;">✅ Conferma riconosciuta e aggiornata</div>
+    <div style="font-size:11px;margin-top:4px;">Servizio: <strong>${h(hotel?.name || found.hotelId)}</strong> • Codice: <strong>${h(code)}</strong>${Number.isFinite(price)?` • Importo: <strong>${h(currency)} ${price.toLocaleString('it-IT')}</strong>`:''}</div>`;
   renderBudget(); renderDashboard();
 };
+
+function parseCSVLine(line) {
+  const cells = [];
+  let current = '';
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (char === '"' && line[i + 1] === '"' && quoted) { current += '"'; i++; }
+    else if (char === '"') quoted = !quoted;
+    else if (char === ',' && !quoted) { cells.push(current.trim()); current = ''; }
+    else current += char;
+  }
+  cells.push(current.trim());
+  return cells;
+}
 
 window.parseRevolutCSV = function() {
   const csv=document.getElementById('revolut-csv-paste')?.value||'';
   if(!csv.trim()) return;
   const expenses=getLoggedExpenses(); let added=0;
   const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
-  csv.split('\n').forEach(line=>{
-    const p=line.split(','); if(p.length<3) return;
-    const desc=(p[1]||'Revolut').trim(), amt=parseFloat(p[2]), cur=(p[3]||'EUR').trim().toUpperCase();
+  const existing = new Set(expenses.map(expense => expense.id));
+  csv.split(/\r?\n/).forEach(line=>{
+    const p=parseCSVLine(line); if(p.length<3) return;
+    const desc=(p[1]||'Revolut').trim(), amt=parseLocalizedNumber(p[2]), cur=(p[3]||'EUR').trim().toUpperCase();
     if(isNaN(amt)) return;
-    expenses.push({desc,wallet:cur==='IDR'?'revolut_idr':'revolut_eur',
+    const id = `CSV-${(p[0]||'').trim()}-${desc}-${amt}-${cur}`.replace(/[^a-z0-9-]/gi,'_').slice(0,120);
+    if (existing.has(id)) return;
+    existing.add(id);
+    expenses.push({id,desc,wallet:cur==='IDR'?'revolut_idr':'revolut_eur',
       amountEUR:cur==='IDR'?amt/rate:amt, amountIDR:cur==='IDR'?amt:amt*rate,
       date:(p[0]||'').trim()||new Date().toLocaleDateString('it-IT')});
     added++;
   });
-  localStorage.setItem('bali_user_expenses',JSON.stringify(expenses));
+  saveJSON('bali_user_expenses', expenses);
   window.closeRevolutCSVModal();
   renderLoggedExpensesList(); renderDashboard(); updateWalletTotals();
   alert(`Importate ${added} transazioni da Revolut!`);
@@ -1195,7 +1538,7 @@ function initCurrencyConverter() {
   idr.addEventListener('input',()=>{ const v=parseFloat(idr.value.replace(/\./g,'').replace(/,/g,'')); eur.value=isNaN(v)?'':(v/rate).toFixed(2); });
 }
 
-function getLoggedExpenses() { try{return JSON.parse(localStorage.getItem('bali_user_expenses')||'[]');}catch(e){return[];} }
+function getLoggedExpenses() { try{const value=JSON.parse(localStorage.getItem('bali_user_expenses')||'[]');return Array.isArray(value)?value.map((item,index)=>({...item,id:/^[A-Za-z0-9_-]{1,120}$/.test(String(item.id||''))?item.id:`EXP-${index+1}`,amountEUR:Number(item.amountEUR)||0,amountIDR:Number(item.amountIDR)||0})):[];}catch(e){return[];} }
 
 function initExpenseLogger() {
   const form=document.getElementById('expense-form');
@@ -1205,12 +1548,12 @@ function initExpenseLogger() {
     const desc=document.getElementById('exp-desc').value.trim();
     const wallet=document.getElementById('exp-wallet').value;
     const raw=parseFloat(document.getElementById('exp-amount').value);
-    if(!desc||isNaN(raw)) return;
+    if(!desc||isNaN(raw)||raw<=0){ alert('Inserisci un importo maggiore di zero.'); return; }
     const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
     const isIDR=['revolut_idr','cash_idr','atm_withdrawal'].includes(wallet);
     const expenses=getLoggedExpenses();
-    expenses.push({desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,date:new Date().toLocaleDateString('it-IT')});
-    localStorage.setItem('bali_user_expenses',JSON.stringify(expenses));
+    expenses.push({id:`EXP-${Date.now()}`,desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,date:new Date().toLocaleDateString('it-IT')});
+    saveJSON('bali_user_expenses', expenses);
     document.getElementById('exp-desc').value=''; document.getElementById('exp-amount').value='';
     renderLoggedExpensesList(); renderDashboard(); updateWalletTotals();
   });
@@ -1219,7 +1562,7 @@ function initExpenseLogger() {
 
 window.deleteExpense = function(idx) {
   const e=getLoggedExpenses(); e.splice(idx,1);
-  localStorage.setItem('bali_user_expenses',JSON.stringify(e));
+  saveJSON('bali_user_expenses', e);
   renderLoggedExpensesList(); renderDashboard(); updateWalletTotals();
 };
 
@@ -1233,7 +1576,7 @@ function renderLoggedExpensesList() {
     ${expenses.map((exp,i)=>{
       const lbl=exp.wallet==='cash_idr'?'💵 Contanti':exp.wallet==='atm_withdrawal'?'🏦 ATM':'💳 Revolut';
       return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px dashed var(--border-color);">
-        <div><span style="font-weight:700;">${exp.desc}</span><span style="font-size:10px;color:var(--text-muted);"> (${lbl} • ${exp.date})</span></div>
+        <div><span style="font-weight:700;">${h(exp.desc)}</span><span style="font-size:10px;color:var(--text-muted);"> (${h(lbl)} • ${h(exp.date)})</span></div>
         <div style="display:flex;align-items:center;gap:8px;">
           <span style="font-weight:800;color:var(--accent-emerald);">€${exp.amountEUR.toFixed(2)}</span>
           <button onclick="deleteExpense(${i})" style="background:none;border:none;color:var(--accent-coral);cursor:pointer;font-size:13px;">✕</button>
@@ -1244,16 +1587,19 @@ function renderLoggedExpensesList() {
 
 function updateWalletTotals() {
   const expenses=getLoggedExpenses(); const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
-  let revEUR=0,cashIDR=0;
+  let revEUR=0,cashSpentIDR=0,withdrawnIDR=0;
   expenses.forEach(e=>{
     if(e.wallet==='revolut_eur') revEUR+=e.amountEUR;
     else if(e.wallet==='revolut_idr') revEUR+=e.amountIDR/rate;
-    else if(e.wallet==='cash_idr') cashIDR+=e.amountIDR;
+    else if(e.wallet==='cash_idr') cashSpentIDR+=e.amountIDR;
+    else if(e.wallet==='atm_withdrawal') withdrawnIDR+=e.amountIDR;
   });
   const re=document.getElementById('wallet-revolut-total');
   const ce=document.getElementById('wallet-cash-total');
+  const ae=document.getElementById('wallet-atm-total');
   if(re) re.innerText=`€${revEUR.toFixed(2)}`;
-  if(ce) ce.innerText=`Rp ${cashIDR.toLocaleString('it-IT')}`;
+  if(ce) ce.innerText=`Rp ${(withdrawnIDR-cashSpentIDR).toLocaleString('it-IT')}`;
+  if(ae) ae.innerText=`Rp ${withdrawnIDR.toLocaleString('it-IT')}`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1275,17 +1621,111 @@ function initSearch() {
 
 window.exportTripBackupData = function() {
   const data=JSON.stringify({
+    schemaVersion:2,
     tripMeta:BALI_TRIP_DATA.meta, budgetItems:getBudgetItems(), paidState:getBudgetPaidState(),
     itinerary:getItinerary(), accommodations:getHotels(), food:getFoodItems(),
+    excursions:getExcursions(),
     checklistItems:getChecklistItems(), checklistState:getChecklistState(),
     pianoB:getPianoB(), drivers:getDrivers(), photoSpots:getPhotoSpots(),
     loggedExpenses:getLoggedExpenses(), exportDate:new Date().toISOString()
   },null,2);
+  const objectUrl=URL.createObjectURL(new Blob([data],{type:'application/json'}));
   const a=Object.assign(document.createElement('a'),{
-    href:'data:text/json;charset=utf-8,'+encodeURIComponent(data),
+    href:objectUrl,
     download:`Bali_2026_Backup_${new Date().toISOString().split('T')[0]}.json`
   });
   document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(objectUrl),0);
+};
+
+function initBackupImport() {
+  document.getElementById('backup-import-input')?.addEventListener('change', async event => {
+    const file=event.target.files?.[0];
+    event.target.value='';
+    if(!file)return;
+    try {
+      if(file.size>1024*1024) throw new Error('Il backup supera 1 MB.');
+      const backup=JSON.parse(await file.text());
+      if(!backup || typeof backup!=='object' || !Array.isArray(backup.itinerary)) throw new Error('Backup non riconosciuto.');
+      if(!confirm('Ripristinare questo backup? I dati correnti sul dispositivo saranno sostituiti.'))return;
+      const mapping={
+        budgetItems:BUDGET_KEY,paidState:BUDGET_PAID_KEY,itinerary:ITIN_KEY,accommodations:HOTELS_KEY,
+        food:FOOD_KEY,excursions:EXCURSIONS_KEY,checklistItems:CHECKLIST_KEY,checklistState:CHECKLIST_STATE_KEY,
+        pianoB:PIANOB_KEY,drivers:DRIVERS_KEY,photoSpots:PHOTOS_KEY,loggedExpenses:'bali_user_expenses'
+      };
+      Object.entries(mapping).forEach(([source,key])=>{
+        if(backup[source]!==undefined) localStorage.setItem(key,JSON.stringify(backup[source]));
+      });
+      scheduleBackendSync();
+      window.location.reload();
+    } catch(error) { alert(`Impossibile importare il backup: ${error.message}`); }
+  });
+}
+
+function getSyncToken() { return sessionStorage.getItem('bali_sync_token') || ''; }
+function updateSyncStatus(message, tone='muted') {
+  const status=document.getElementById('sync-status');
+  if(!status)return;
+  status.textContent=message;
+  status.style.color=tone==='ok'?'var(--accent-emerald)':tone==='error'?'var(--accent-coral)':'var(--text-muted)';
+}
+
+function collectSyncState() {
+  const state={};
+  for(const key of SYNC_KEYS){
+    try { const raw=localStorage.getItem(key); if(raw!==null) state[key]=JSON.parse(raw); } catch {}
+  }
+  return state;
+}
+
+async function requestServerState(method='GET', state) {
+  const token=getSyncToken();
+  if(!token) throw new Error('Token non configurato');
+  const response=await fetch('/api/state',{method,headers:{Accept:'application/json','Content-Type':'application/json',Authorization:`Bearer ${token}`},body:method==='PUT'?JSON.stringify({state}):undefined});
+  const payload=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(payload.error||`Errore server ${response.status}`);
+  return payload;
+}
+
+async function hydrateStateFromBackend() {
+  if(!getSyncToken()) return;
+  try {
+    updateSyncStatus('Sincronizzazione dal server…');
+    const payload=await requestServerState();
+    const entries=Object.entries(payload.state||{}).filter(([key])=>SYNC_KEYS.includes(key));
+    if(!entries.length){ await syncStateToBackend(); return; }
+    isHydratingFromBackend=true;
+    entries.forEach(([key,value])=>localStorage.setItem(key,JSON.stringify(value)));
+    isHydratingFromBackend=false;
+    updateSyncStatus(`Sincronizzato · ${new Date(payload.updatedAt).toLocaleString('it-IT')}`,'ok');
+  } catch(error) { isHydratingFromBackend=false; updateSyncStatus(error.message,'error'); }
+}
+
+function scheduleBackendSync() {
+  if(isHydratingFromBackend||!getSyncToken())return;
+  clearTimeout(backendSyncTimer);
+  backendSyncTimer=setTimeout(()=>syncStateToBackend(),700);
+}
+
+async function syncStateToBackend() {
+  if(!getSyncToken())return;
+  try {
+    updateSyncStatus('Salvataggio sul server…');
+    const payload=await requestServerState('PUT',collectSyncState());
+    updateSyncStatus(`Salvato sul server · ${new Date(payload.updatedAt).toLocaleTimeString('it-IT')}`,'ok');
+  } catch(error) { updateSyncStatus(error.message,'error'); }
+}
+
+window.configureBackendSync=async function() {
+  const token=window.prompt('Inserisci BALI_SYNC_TOKEN configurato sul backend. Rimarrà solo in questa sessione del browser:','');
+  if(token===null)return;
+  if(!token.trim()){
+    sessionStorage.removeItem('bali_sync_token');
+    updateSyncStatus('Sincronizzazione server disattivata.');
+    return;
+  }
+  sessionStorage.setItem('bali_sync_token',token.trim());
+  await hydrateStateFromBackend();
 };
 
 /* ═══════════════════════════════════════════════════════

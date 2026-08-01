@@ -4,12 +4,11 @@ const BALI_TRIP_DATA = {
     title: "BALI 2026 - CONTROL CENTER",
     dates: "15 - 29 Settembre 2026",
     travelers: 2,
-    departureDate: "2026-09-15T22:10:00",
+    departureDate: "2026-09-15T22:10:00+02:00",
     budgetMax: 5628.86,
     budgetMin: 4885.86,
-    budgetPaid: 2134.36,
-    exchangeRateEURtoIDR: 17500,
-    googleClientId: "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com"
+    budgetPaid: 2244.36,
+    exchangeRateEURtoIDR: 17500
   },
 
   budgetItems: [
@@ -73,23 +72,19 @@ const BALI_TRIP_DATA = {
   ],
 
   driversAndTransfers: [
-    { role: "Driver Privato Ubud & Tour", name: "Wayan / Ketut Taxi Ubud", phone: "+628123456789", waText: "Ciao Wayan! Ho una prenotazione per il tour a Ubud dal 16 al 20 Settembre 2026." },
-    { role: "Fast Boat Padang Bai → Gili Air", name: "Eka Jaya / Bluewater Express", phone: "+628987654321", waText: "Hello! Checking fast boat availability for 20th September 2026 from Padang Bai." },
-    { role: "Driver Sud Bali & Aeroporto DPS", name: "Made Driver Uluwatu", phone: "+628111222333", waText: "Hi Made! We need pickup in Serangan on 27th Sept heading to Jimbaran." }
-  ],
-
-  weather: [
-    { area: "Ubud", temp: "28°C", condition: "⛅ Parzialmente nuvoloso", humidity: "78%" },
-    { area: "Gili Air", temp: "31°C", condition: "☀️ Soleggiato", humidity: "70%" },
-    { area: "Uluwatu", temp: "29°C", condition: "🌤️ Brezza marina", humidity: "74%" }
+    { role: "Driver Privato Ubud & Tour", name: "Driver Ubud — da configurare", phone: "", waText: "Ciao! Vorrei confermare un tour privato a Ubud dal 16 al 20 settembre 2026." },
+    { role: "Fast Boat Padang Bai → Gili Air", name: "Operatore Fast Boat — da configurare", phone: "", waText: "Hello! I would like to confirm the fast boat from Padang Bai to Gili Air on 20 September 2026." },
+    { role: "Driver Sud Bali & Aeroporto DPS", name: "Driver Bali Sud — da configurare", phone: "", waText: "Hello! We need a pickup in Serangan on 27 September 2026 heading to Jimbaran." }
   ],
 
   emergencyContacts: [
-    { label: "Ambulanza / Emergenze Bali", phone: "118" },
-    { label: "Polizia Turistica Bali", phone: "110 / +62 361 754599" },
-    { label: "Ambasciata Italiana Jakarta", phone: "+62 21 3193 7445" },
-    { label: "Consolato Onorario Italia Bali", phone: "+62 361 701005" },
-    { label: "Centrale Operativa Assicurazione Viaggio", phone: "+39 02 24128221" }
+    { label: "Emergenza generale Indonesia", phone: "112" },
+    { label: "Ambulanza", phone: "119" },
+    { label: "Polizia", phone: "110" },
+    { label: "Ambasciata Italiana — emergenze", phone: "+62 815 1811 344" },
+    { label: "Unità di Crisi Farnesina (24/7)", phone: "+39 06 36225" },
+    { label: "Ambasciata Italiana — ufficio consolare", phone: "+62 21 3193 7445" },
+    { label: "Assicurazione viaggio (configurare)", phone: "Numero da inserire" }
   ],
 
   accommodations: [
@@ -108,7 +103,7 @@ const BALI_TRIP_DATA = {
       address: "Jl. Raya Kedewatan, Kedewatan, Kecamatan Ubud, Kabupaten Gianyar, Bali 80571",
       location: "Kedewatan/Campuhan; piscina privata; spa; navetta centro; taxi aeroporto promo",
       notes: "Prezzo mobile/Genius visto su Booking.",
-      bookingCode: "BK-8849201",
+      bookingCode: "",
       link: "https://www.booking.com/hotel/id/temuku-villas-ubud.html"
     },
     {
@@ -122,11 +117,11 @@ const BALI_TRIP_DATA = {
       nightlyPriceEUR: 96.71,
       freeCancellation: true,
       status: "Prenotato",
-      rating: "9.5",
+      rating: "9.0",
       address: "Gili Air, Gili Indah, Pemenang, North Lombok Regency, West Nusa Tenggara 83352",
       location: "Preferenza: romantico, piscina e buona posizione fronte mare",
       notes: "Contatto WhatsApp del resort per il check-in.",
-      bookingCode: "CD-773910",
+      bookingCode: "",
       link: "https://www.google.com/maps/search/?api=1&query=Coral+Drift+Resort+Gili+Air"
     },
     {
@@ -140,11 +135,11 @@ const BALI_TRIP_DATA = {
       nightlyPriceEUR: 22.50,
       freeCancellation: true,
       status: "Prenotato",
-      rating: "8.8",
-      address: "Jl. Raya Kampus Unud, Jimbaran, Kec. Kuta Sel., Kabupaten Badung, Bali 80361",
+      rating: "9.2",
+      address: "Jalan Pantai Balangan No. 11, Kabupaten Badung, Bali 80361",
       location: "Base finale comoda per aeroporto DPS e Tempio Uluwatu",
       notes: "Richiedere late checkout/day-use e doccia finale prima del volo.",
-      bookingCode: "PH-992014",
+      bookingCode: "",
       link: "https://www.google.com/maps/search/?api=1&query=Paranyogan+Homestay+Jimbaran"
     }
   ],
@@ -435,18 +430,27 @@ const BALI_TRIP_DATA = {
   ],
 
   foodHighlights: [
-    { date: "17/09", place: "Kailasha Restaurant", area: "Ubud", meal: "Pranzo", style: "Balinese vista risaie", price: "€20-40", link: "https://puriganggaresort.com/dining/kailasha-restaurant/", maps: "Kailasha+Restaurant+Ubud" },
-    { date: "17/09", place: "Murni's Warung", area: "Ubud", meal: "Cena", style: "Storico su fiume Campuhan", price: "€20-40", link: "https://www.murnis.com/murnis_wp/wp-content/uploads/2016/06/Murnis-Warung-A-La-Carte-Menu-22-April-2024.pdf", maps: "Murnis+Warung+Ubud" },
-    { date: "18/09", place: "The Sayan House", area: "Ubud", meal: "Cena", style: "Cena Romantica Fusion vista valle", price: "€45-90", link: "https://www.thesayanhouse.com/", priority: "MUST BOOK 🔥", maps: "The+Sayan+House+Ubud" },
-    { date: "19/09", place: "Hujan Locale", area: "Ubud", meal: "Cena", style: "Cucina indonesiana gourmet", price: "€45-90", link: "https://hujanlocale.com/", priority: "MUST BOOK 🔥", maps: "Hujan+Locale+Ubud" },
-    { date: "20/09", place: "Papaya Gili", area: "Gili Air", meal: "Cena", style: "BBQ Pesce e tramonto beach", price: "€20-40", link: "https://www.papayagili.com/", priority: "MUST BOOK 🔥", maps: "Papaya+Gili+Air" },
-    { date: "21/09", place: "Pachamama", area: "Gili Air", meal: "Pranzo", style: "Bowl organiche & healthy", price: "€20-40", link: "https://lomboq.com/biz/restaurant/pachamama-gili-air", maps: "Pachamama+Gili+Air" },
-    { date: "21/09", place: "Mowies", area: "Gili Air", meal: "Cena", style: "Cocktails e tramonto iconico", price: "€20-40", link: "https://www.mowiesgiliair.com/public/restaurant", priority: "MUST BOOK 🔥", maps: "Mowies+Gili+Air" },
-    { date: "22/09", place: "Bella Ciao", area: "Gili Air", meal: "Cena", style: "Atmosfera rilassata italiana/local", price: "€20-40", link: "https://www.bellaciaogiliair.com/menu/", maps: "Bella+Ciao+Gili+Air" },
-    { date: "23/09", place: "Warung Sunny", area: "Gili Air", meal: "Pranzo", style: "Cucina locale autentica ed economica", price: "€10-20", link: "https://visitgiliislands.com/islands/air/directory/restaurants/warung-sunny", maps: "Warung+Sunny+Gili+Air" },
-    { date: "24/09", place: "Bahia", area: "Gili Air", meal: "Cena", style: "Grigliata & Music / Fire Show", price: "€20-40", link: "https://bahiagili.com/menu", maps: "Bahia+Gili+Air" },
-    { date: "27/09", place: "Bawang Merah", area: "Jimbaran", meal: "Cena", style: "Pesce alla griglia con piedi nella sabbia", price: "€45-90", link: "https://jimbaranbayrestaurant.com/", priority: "MUST BOOK 🔥", maps: "Bawang+Merah+Jimbaran" },
-    { date: "28/09", place: "Mana Uluwatu", area: "Uluwatu", meal: "Pranzo", style: "Vista oceano spettacolare dalle scogliere", price: "€45-90", link: "https://uluwatusurfvillas.com/restaurant/", maps: "Mana+Uluwatu" }
+    { id: "FOOD-01", date: "17/09", place: "Kailasha Restaurant", area: "Ubud", meal: "Pranzo", style: "Balinese vista risaie", price: "€20-40", link: "https://puriganggaresort.com/dining/kailasha-restaurant/", maps: "Kailasha+Restaurant+Ubud" },
+    { id: "FOOD-02", date: "17/09", place: "Murni's Warung", area: "Ubud", meal: "Cena", style: "Storico su fiume Campuhan", price: "€20-40", link: "https://www.murnis.com/murnis_wp/wp-content/uploads/2016/06/Murnis-Warung-A-La-Carte-Menu-22-April-2024.pdf", maps: "Murnis+Warung+Ubud" },
+    { id: "FOOD-03", date: "18/09", place: "The Sayan House", area: "Ubud", meal: "Cena", style: "Cena Romantica Fusion vista valle", price: "€45-90", link: "https://www.thesayanhouse.com/", priority: "MUST BOOK 🔥", maps: "The+Sayan+House+Ubud" },
+    { id: "FOOD-04", date: "19/09", place: "Hujan Locale", area: "Ubud", meal: "Cena", style: "Cucina indonesiana gourmet", price: "€45-90", link: "https://hujanlocale.com/", priority: "MUST BOOK 🔥", maps: "Hujan+Locale+Ubud" },
+    { id: "FOOD-05", date: "20/09", place: "Papaya Gili", area: "Gili Air", meal: "Cena", style: "BBQ Pesce e tramonto beach", price: "€20-40", link: "https://www.papayagili.com/", priority: "MUST BOOK 🔥", maps: "Papaya+Gili+Air" },
+    { id: "FOOD-06", date: "21/09", place: "Pachamama", area: "Gili Air", meal: "Pranzo", style: "Bowl organiche & healthy", price: "€20-40", link: "https://lomboq.com/biz/restaurant/pachamama-gili-air", maps: "Pachamama+Gili+Air" },
+    { id: "FOOD-07", date: "21/09", place: "Mowies", area: "Gili Air", meal: "Cena", style: "Cocktails e tramonto iconico", price: "€20-40", link: "https://www.mowiesgiliair.com/public/restaurant", priority: "MUST BOOK 🔥", maps: "Mowies+Gili+Air" },
+    { id: "FOOD-08", date: "22/09", place: "Bella Ciao", area: "Gili Air", meal: "Cena", style: "Atmosfera rilassata italiana/local", price: "€20-40", link: "https://www.bellaciaogiliair.com/menu/", maps: "Bella+Ciao+Gili+Air" },
+    { id: "FOOD-09", date: "23/09", place: "Warung Sunny", area: "Gili Air", meal: "Pranzo", style: "Cucina locale autentica ed economica", price: "€10-20", link: "https://visitgiliislands.com/islands/air/directory/restaurants/warung-sunny", maps: "Warung+Sunny+Gili+Air" },
+    { id: "FOOD-10", date: "24/09", place: "Bahia", area: "Gili Air", meal: "Cena", style: "Grigliata & Music / Fire Show", price: "€20-40", link: "https://bahiagili.com/menu", maps: "Bahia+Gili+Air" },
+    { id: "FOOD-11", date: "27/09", place: "Bawang Merah", area: "Jimbaran", meal: "Cena", style: "Pesce alla griglia con piedi nella sabbia", price: "€45-90", link: "https://jimbaranbayrestaurant.com/", priority: "MUST BOOK 🔥", maps: "Bawang+Merah+Jimbaran" },
+    { id: "FOOD-12", date: "28/09", place: "Mana Uluwatu", area: "Uluwatu", meal: "Pranzo", style: "Vista oceano spettacolare dalle scogliere", price: "€45-90", link: "https://uluwatusurfvillas.com/restaurant/", maps: "Mana+Uluwatu" }
+  ],
+
+  excursions: [
+    { id: "EX-01", dayNum: 3, name: "Tour privato Ubud: risaie, Tirta Empul e cascate", region: "Ubud", time: "Mattina", status: "Da confermare", priceEUR: 78, budgetItemId: "ITEM-10", notes: "Confermare pickup e sarong incluso.", link: "" },
+    { id: "EX-02", dayNum: 4, name: "Monte Batur in Jeep 4x4 e sorgenti termali", region: "Ubud", time: "Alba", status: "Da prenotare", priceEUR: 108, budgetItemId: "ITEM-11", notes: "Verificare orario pickup e colazione.", link: "" },
+    { id: "EX-03", dayNum: 5, name: "ATV, rafting Ayung e Monkey Forest", region: "Ubud", time: "Intera giornata", status: "Da prenotare", priceEUR: 190, budgetItemId: "ITEM-12", notes: "Controllare copertura assicurativa delle attività.", link: "" },
+    { id: "EX-04", dayNum: 8, name: "Snorkeling privato Gili Meno e The Nest", region: "Gili Air", time: "08:00", status: "Prenotata", priceEUR: 110, budgetItemId: "ITEM-04", notes: "Voucher e contatto del marinaio offline.", link: "" },
+    { id: "EX-05", dayNum: 10, name: "Discover Scuba Diving", region: "Gili Air", time: "Mattina", status: "Da prenotare", priceEUR: 130, budgetItemId: "ITEM-13", notes: "Compilare il questionario medico prima dell’attività.", link: "" },
+    { id: "EX-06", dayNum: 14, name: "Tempio di Uluwatu e Danza Kecak", region: "Uluwatu", time: "Tramonto", status: "Da prenotare", priceEUR: 0, budgetItemId: "", notes: "Saltare in caso di ritardo per non rischiare il volo.", link: "" }
   ],
 
   checklist: [

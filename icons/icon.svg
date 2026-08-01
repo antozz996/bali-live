@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Bali Live">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#10b981"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#080c14"/>
+  <circle cx="256" cy="256" r="190" fill="url(#bg)" opacity=".18"/>
+  <path d="M260 421V232c0-66 45-119 112-136-9 55-42 96-93 117 51-3 95 17 132 58-64 14-112 1-145-38 28 49 29 100 2 153z" fill="#10b981"/>
+  <path d="M251 231c-23-61-70-96-140-104 21 52 59 86 114 101-53 5-95 31-126 77 65 4 110-17 137-61z" fill="#34d399"/>
+  <circle cx="380" cy="128" r="50" fill="#f59e0b"/>
+  <path d="M64 405c57-42 120-59 188-50 63 8 128 3 196-17v110H64z" fill="#06b6d4"/>
+  <path d="M64 434c75-26 143-29 204-9 55 18 115 17 180-3v42H64z" fill="#f8fafc" opacity=".82"/>
+</svg>

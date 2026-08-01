@@ -20,7 +20,7 @@
     <!-- Top Header -->
     <header class="app-header">
       <div class="header-brand">
-        <div class="brand-icon">🌺</div>
+        <div class="brand-icon" aria-hidden="true">BL</div>
         <div>
           <div class="brand-title">BALI 2026</div>
           <div class="brand-subtitle">Control Center • 15-29 Settembre</div>
@@ -105,7 +105,7 @@
     <section id="view-excursions" class="view-panel" aria-labelledby="excursions-title">
       <div class="section-header">
         <div>
-          <h2 class="section-title" id="excursions-title">🧭 Escursioni</h2>
+        <h2 class="section-title" id="excursions-title">Escursioni</h2>
           <span class="section-subtitle">Collegate ai giorni dell’itinerario</span>
         </div>
       </div>
@@ -160,7 +160,7 @@
 
       <!-- Quick Expense Logger -->
       <div class="glass-card">
-        <div style="font-family: var(--font-heading); font-size: 15px; font-weight: 800;">➕ Aggiungi Spesa (Revolut / Contanti)</div>
+        <div style="font-family: var(--font-heading); font-size: 15px; font-weight: 800;">Aggiungi spesa (Revolut / Contanti)</div>
         <form id="expense-form" class="expense-log-form">
           <input type="text" id="exp-desc" class="search-input" placeholder="Es. Nasi Goreng, Taxi Grab, Prelievo ATM" required>
           
@@ -220,7 +220,7 @@
     <section id="view-guide" class="view-panel" aria-labelledby="guide-title">
       <!-- Consolidated tab containing Checklist, emergency info, survival guide, photo spots & PWA backup -->
       <div class="section-header">
-        <h2 class="section-title" id="guide-title">✅ Checklist Documenti</h2>
+        <h2 class="section-title" id="guide-title">Checklist documenti</h2>
         <span class="section-subtitle" id="checklist-progress-text">0% completato</span>
       </div>
       
@@ -231,7 +231,7 @@
       <div id="checklist-content" style="margin-bottom: 24px;"></div>
 
       <div class="section-header">
-        <h2 class="section-title" style="color: var(--accent-coral)">🚨 Piano B & Contingenze</h2>
+        <h2 class="section-title" style="color: var(--accent-coral)">Piano B & contingenze</h2>
       </div>
       <div id="piano-b-content" style="margin-bottom: 24px;"></div>
 
@@ -332,7 +332,7 @@
       <textarea id="email-paste-area" class="search-input" style="height: 100px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Incolla qui l'email di Booking.com, volo Emirates o voucher GetYourGuide..."></textarea>
       
       <button class="btn-primary" onclick="parsePastedEmail()" style="width: 100%; margin-top: 10px;">
-        ⚡ Analizza e aggiorna prenotazione
+        Analizza e aggiorna prenotazione
       </button>
 
       <div id="parse-result-status" style="margin-top: 10px; font-size: 12px;"></div>
@@ -355,7 +355,7 @@
       <textarea id="revolut-csv-paste" class="search-input" style="height: 110px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Date, Description, Amount, Currency&#10;2026-09-17, Kailasha Ubud, 32.50, EUR&#10;2026-09-20, Grab Taxi Padang Bai, 250000, IDR"></textarea>
 
       <button class="btn-primary" onclick="parseRevolutCSV()" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6366f1, #06b6d4); color: #fff;">
-        🚀 Importa Spese Revolut
+        Importa spese Revolut
       </button>
     </div>
   </div>

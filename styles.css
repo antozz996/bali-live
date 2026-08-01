@@ -122,7 +122,8 @@ body::after {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 20px;
+  font: 800 11px/1 Arial, sans-serif;
+  letter-spacing: .08em;
   box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
   animation: pulseLogo 3s infinite ease-in-out;
 }
@@ -1045,15 +1046,24 @@ textarea.search-input {
   line-height: 1.5;
 }
 
-/* Local icon set: keeps the PWA readable without external font CDNs. */
-.fa-solid::before,.fa-brands::before{display:inline-block;font-style:normal;font-family:var(--font-family);font-weight:900;line-height:1}
-.fa-chart-pie::before{content:'◔'}.fa-calendar-days::before{content:'▦'}.fa-person-hiking::before{content:'♢'}
-.fa-wallet::before{content:'▣'}.fa-utensils::before{content:'⋔'}.fa-compass::before{content:'⌁'}
-.fa-envelope-open-text::before{content:'✉'}.fa-phone-volume::before{content:'☎'}.fa-plus::before{content:'+'}
-.fa-pen-to-square::before{content:'✎'}.fa-trash::before{content:'×'}.fa-check::before{content:'✓'}
-.fa-map-location-dot::before,.fa-map-pin::before{content:'⌖'}.fa-bed::before{content:'▰'}.fa-whatsapp::before{content:'W'}
-.fa-file-csv::before{content:'CSV'}.fa-download::before{content:'↓'}.fa-upload::before{content:'↑'}
-.fa-cloud-arrow-up::before{content:'⇧'}.fa-magnifying-glass::before{content:'⌕'}.fa-shield-cat::before{content:'!'}
+/* Local icon set: ASCII labels avoid both external fonts and missing emoji glyphs. */
+.fa-solid::before,.fa-brands::before{display:inline-block;font-style:normal;font-family:Arial,sans-serif;font-size:10px;font-weight:900;line-height:1;letter-spacing:-.03em}
+.fa-chart-pie::before{content:'H'}.fa-calendar-days::before{content:'IT'}.fa-person-hiking::before{content:'TO'}
+.fa-wallet::before{content:'EUR'}.fa-utensils::before{content:'FO'}.fa-compass::before{content:'UT'}
+.fa-envelope-open-text::before{content:'GM'}.fa-phone-volume::before{content:'SOS'}.fa-plus::before{content:'+'}
+.fa-pen-to-square::before{content:'ED'}.fa-trash::before{content:'X'}.fa-check::before{content:'OK'}
+.fa-map-location-dot::before,.fa-map-pin::before{content:'MAP'}.fa-bed::before{content:'HT'}.fa-whatsapp::before{content:'WA'}
+.fa-file-csv::before{content:'CSV'}.fa-download::before{content:'DL'}.fa-upload::before{content:'UP'}
+.fa-cloud-arrow-up::before{content:'CL'}.fa-magnifying-glass::before{content:'S'}.fa-shield-cat::before{content:'!'}
+
+.weather-symbol{display:inline-block;width:11px;height:11px;flex:0 0 11px;border-radius:50%;background:#94a3b8;box-shadow:0 0 0 3px rgba(148,163,184,.12)}
+.weather-0,.weather-1{background:#fbbf24;box-shadow:0 0 0 3px rgba(251,191,36,.14)}
+.weather-2,.weather-3{background:#94a3b8}
+.weather-45,.weather-48{background:#cbd5e1}
+.weather-51,.weather-53,.weather-55,.weather-56,.weather-57,.weather-61,.weather-63,.weather-65,.weather-66,.weather-67,.weather-80,.weather-81,.weather-82{background:#06b6d4;box-shadow:0 0 0 3px rgba(6,182,212,.14)}
+.weather-71,.weather-73,.weather-75,.weather-77,.weather-85,.weather-86{background:#e2e8f0}
+.weather-95,.weather-96,.weather-99{background:#a78bfa;box-shadow:0 0 0 3px rgba(167,139,250,.16)}
+.travel-weather strong{display:flex;align-items:center;gap:7px}
 
 .dashboard-shortcuts,.feature-actions,.booking-actions,.travel-quick{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
 .dashboard-shortcuts>* ,.feature-actions>* ,.travel-quick>*{flex:1;min-width:120px;padding:10px}

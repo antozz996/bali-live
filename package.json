@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check backend/app.js && node --check backend/weather.js && node --check backend/state-store.js && node --check data.js && node --check app.js && node --check sw.js",
+    "check": "node --check server.js && node --check backend/app.js && node --check backend/weather.js && node --check backend/state-store.js && node --check api/health.js && node --check api/weather.js && node --check data.js && node --check app.js && node --check sw.js",
     "test": "node --test"
   },
   "engines": {

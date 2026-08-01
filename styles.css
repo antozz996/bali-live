@@ -24,8 +24,8 @@
   --accent-coral: #f43f5e;
   --accent-purple: #8b5cf6;
 
-  --font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-heading: 'Outfit', sans-serif;
+  --font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-heading: ui-rounded, 'Arial Rounded MT Bold', Inter, ui-sans-serif, sans-serif;
 
   --radius-lg: 20px;
   --radius-md: 14px;
@@ -137,9 +137,8 @@ body::after {
   font-size: 19px;
   font-weight: 800;
   letter-spacing: -0.3px;
-  background: linear-gradient(135deg, #ffffff 30%, #a7f3d0);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #f8fafc;
+  white-space: nowrap;
 }
 
 .brand-subtitle {
@@ -1046,6 +1045,42 @@ textarea.search-input {
   line-height: 1.5;
 }
 
+/* Local icon set: keeps the PWA readable without external font CDNs. */
+.fa-solid::before,.fa-brands::before{display:inline-block;font-style:normal;font-family:var(--font-family);font-weight:900;line-height:1}
+.fa-chart-pie::before{content:'◔'}.fa-calendar-days::before{content:'▦'}.fa-person-hiking::before{content:'♢'}
+.fa-wallet::before{content:'▣'}.fa-utensils::before{content:'⋔'}.fa-compass::before{content:'⌁'}
+.fa-envelope-open-text::before{content:'✉'}.fa-phone-volume::before{content:'☎'}.fa-plus::before{content:'+'}
+.fa-pen-to-square::before{content:'✎'}.fa-trash::before{content:'×'}.fa-check::before{content:'✓'}
+.fa-map-location-dot::before,.fa-map-pin::before{content:'⌖'}.fa-bed::before{content:'▰'}.fa-whatsapp::before{content:'W'}
+.fa-file-csv::before{content:'CSV'}.fa-download::before{content:'↓'}.fa-upload::before{content:'↑'}
+.fa-cloud-arrow-up::before{content:'⇧'}.fa-magnifying-glass::before{content:'⌕'}.fa-shield-cat::before{content:'!'}
+
+.dashboard-shortcuts,.feature-actions,.booking-actions,.travel-quick{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+.dashboard-shortcuts>* ,.feature-actions>* ,.travel-quick>*{flex:1;min-width:120px;padding:10px}
+.booking-metrics{grid-template-columns:repeat(3,1fr)}
+.booking-list{display:flex;flex-direction:column;gap:10px}.booking-card{margin-bottom:0}
+.booking-card-head,.vault-head,.reminder-head,.gmail-account{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.booking-card h3{font-size:15px;margin-top:4px}.booking-type{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-cyan);font-weight:800}
+.booking-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px 12px;font-size:11px;color:var(--text-secondary);margin-top:10px}
+.booking-code{margin-top:8px;padding:7px 9px;border-radius:8px;background:rgba(6,182,212,.09);font-size:12px;color:var(--accent-cyan)}
+.booking-notes{font-size:11px;color:var(--text-secondary);margin-top:8px}.booking-actions{justify-content:space-between;align-items:center;margin-bottom:0}
+.booking-actions>div{display:flex;gap:5px}.check-label{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--text-secondary);margin:8px 0}
+.exchange-live-row{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:8px;font-size:10px;color:var(--text-muted)}
+.reminders-card{margin-top:12px}.reminder-head{align-items:center;margin-bottom:8px}.reminder-item{display:flex;gap:9px;padding:8px 0;border-top:1px solid var(--border-color)}
+.reminder-item>span{width:8px;height:8px;border-radius:50%;margin-top:5px;background:var(--accent-cyan)}.reminder-item.warn>span{background:var(--accent-amber)}.reminder-item.urgent>span{background:var(--accent-coral)}
+.reminder-item div{display:flex;flex-direction:column}.reminder-item strong{font-size:12px}.reminder-item small{font-size:10px;color:var(--text-muted)}
+.travel-hero{margin:0 0 12px;padding:20px;border:1px solid var(--border-highlight);border-radius:var(--radius-lg);background:linear-gradient(135deg,rgba(16,185,129,.18),rgba(6,182,212,.09))}
+.travel-hero span{font-size:11px;color:var(--accent-emerald);font-weight:800;text-transform:uppercase}.travel-hero h2{font-size:28px;margin:4px 0}.travel-hero p{color:var(--text-secondary)}
+.travel-weather{display:flex;justify-content:space-between;gap:10px}.travel-weather span{font-size:11px;color:var(--text-secondary)}
+.travel-link{display:block;width:100%;text-align:left;padding:9px;margin-top:7px;border:1px solid var(--border-color);border-radius:9px;background:rgba(255,255,255,.03);color:var(--text-primary)}
+.gmail-account{align-items:center;padding:10px;background:var(--bg-card);border-radius:10px;margin-bottom:8px;font-size:12px}.gmail-account>div{display:flex;gap:5px}
+#gmail-status[data-tone='ok']{color:var(--accent-emerald)}#gmail-status[data-tone='error']{color:var(--accent-coral)}
+.gmail-results{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow:auto;margin:8px 0}.gmail-result{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:9px;border:1px solid var(--border-color);border-radius:9px}
+.gmail-result div{display:flex;flex-direction:column;min-width:0}.gmail-result strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gmail-result span{font-size:9px;color:var(--text-muted)}
+.manual-import{margin-top:12px;border-top:1px solid var(--border-color);padding-top:10px}.manual-import summary{cursor:pointer;color:var(--text-secondary);font-size:12px}
+.account-card .feature-actions{margin-bottom:0}.privacy-link{display:inline-block;margin-top:10px;font-size:11px;color:var(--accent-cyan)}
+.vault-file{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 0;border-top:1px solid var(--border-color)}.vault-file div:first-child{display:flex;flex-direction:column;min-width:0}.vault-file strong{font-size:11px;overflow:hidden;text-overflow:ellipsis}.vault-file small{font-size:9px;color:var(--text-muted)}.vault-file div:last-child{display:flex;gap:5px}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -1063,6 +1098,9 @@ textarea:focus-visible,
   .time-box { min-width: 38px; padding: 6px; }
   .wallet-grid { grid-template-columns: 1fr; }
   .form-row { flex-direction: column; }
+  .booking-grid { grid-template-columns:1fr; }
+  .booking-metrics { grid-template-columns:repeat(3,1fr); }
+  .gmail-account,.travel-weather { flex-direction:column; }
   .nav-item { padding: 6px 2px; font-size: 9px; }
 }
 
@@ -1074,3 +1112,5 @@ textarea:focus-visible,
     transition-duration: 0.01ms !important;
   }
 }
+
+.privacy-page{max-width:720px;margin:0 auto;padding:24px 16px}.privacy-page h1{font-family:var(--font-heading);font-size:30px;margin:22px 0 4px}.privacy-page>p{color:var(--text-muted);margin-bottom:18px}.privacy-page h2{font-size:16px;margin-bottom:7px}.privacy-page .glass-card p{color:var(--text-secondary);font-size:13px}

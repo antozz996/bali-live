@@ -22,5 +22,19 @@
       "type": "image/svg+xml",
       "purpose": "maskable"
     }
+  ],
+  "shortcuts": [
+    {
+      "name": "Modalità viaggio",
+      "short_name": "Viaggio",
+      "url": "/?view=travel",
+      "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Centro prenotazioni",
+      "short_name": "Prenotazioni",
+      "url": "/?view=bookings",
+      "icons": [{ "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    }
   ]
 }

@@ -6,6 +6,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { StateStore } = require('./state-store');
 const { WeatherService } = require('./weather');
+const { ExchangeService } = require('./exchange');
 
 const ROOT = path.resolve(__dirname, '..');
 const MAX_BODY_BYTES = 1024 * 1024;
@@ -13,7 +14,8 @@ const ALLOWED_STATE_KEYS = new Set([
   'bali_budget_items_v2', 'bali_paid_items_custom', 'bali_itinerary_v1',
   'bali_accommodations_v1', 'bali_food_v2', 'bali_checklist_items_v1',
   'bali_checklist_state', 'bali_pianob_v1', 'bali_drivers_v1',
-  'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses'
+  'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses',
+  'bali_bookings_v1', 'bali_reminder_state', 'bali_exchange_rate_v1'
 ]);
 
 const MIME_TYPES = Object.freeze({
@@ -25,7 +27,7 @@ const MIME_TYPES = Object.freeze({
   '.png': 'image/png',
   '.ico': 'image/x-icon'
 });
-const PUBLIC_FILES = new Set(['/index.html', '/styles.css', '/app.js', '/data.js', '/sw.js', '/manifest.json', '/icons/icon.svg', '/icons/icon-maskable.svg']);
+const PUBLIC_FILES = new Set(['/index.html', '/privacy.html', '/styles.css', '/app.js', '/features.js', '/vault.js', '/data.js', '/sw.js', '/manifest.json', '/icons/icon.svg', '/icons/icon-maskable.svg']);
 
 function securityHeaders(contentType) {
   return {
@@ -33,8 +35,9 @@ function securityHeaders(contentType) {
     'X-Content-Type-Options': 'nosniff',
     'Referrer-Policy': 'strict-origin-when-cross-origin',
     'X-Frame-Options': 'DENY',
+    'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     'Permissions-Policy': 'geolocation=(), camera=(), microphone=()',
-    'Content-Security-Policy': "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    'Content-Security-Policy': "default-src 'self'; connect-src 'self' https://accounts.google.com https://gmail.googleapis.com https://www.googleapis.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://accounts.google.com; font-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; frame-src https://accounts.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   };
 }
 
@@ -70,7 +73,11 @@ async function readJsonBody(req) {
 }
 
 function validateState(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Stato non valido');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    const error = new Error('Stato non valido');
+    error.statusCode = 400;
+    throw error;
+  }
   return Object.fromEntries(Object.entries(input).filter(([key]) => ALLOWED_STATE_KEYS.has(key)));
 }
 
@@ -103,6 +110,7 @@ async function serveStatic(req, res, pathname) {
 function createApp(options = {}) {
   const stateStore = options.stateStore || new StateStore(path.join(ROOT, '.data', 'state.json'));
   const weatherService = options.weatherService || new WeatherService();
+  const exchangeService = options.exchangeService || new ExchangeService();
   const syncToken = options.syncToken ?? process.env.BALI_SYNC_TOKEN;
 
   return http.createServer(async (req, res) => {
@@ -116,6 +124,19 @@ function createApp(options = {}) {
         const force = requestUrl.searchParams.get('refresh') === '1';
         const weather = await weatherService.getWeather({ force });
         return sendJson(res, 200, weather, { 'Cache-Control': 'public, max-age=300, stale-while-revalidate=600' });
+      }
+
+      if (requestUrl.pathname === '/api/exchange' && req.method === 'GET') {
+        const force = requestUrl.searchParams.get('refresh') === '1';
+        return sendJson(res, 200, await exchangeService.getRate({ force }), { 'Cache-Control': 'public, max-age=21600, stale-while-revalidate=86400' });
+      }
+
+      if (requestUrl.pathname === '/api/config' && req.method === 'GET') {
+        return sendJson(res, 200, {
+          googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+          gmailEnabled: Boolean(process.env.GOOGLE_CLIENT_ID),
+          cloudSyncEnabled: false
+        }, { 'Cache-Control': 'no-store' });
       }
 
       if (requestUrl.pathname === '/api/state') {

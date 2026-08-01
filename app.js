@@ -10,8 +10,17 @@ const SYNC_KEYS = [
   'bali_budget_items_v2', 'bali_paid_items_custom', 'bali_itinerary_v1',
   'bali_accommodations_v1', 'bali_food_v2', 'bali_checklist_items_v1',
   'bali_checklist_state', 'bali_pianob_v1', 'bali_drivers_v1',
-  'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses'
+  'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses',
+  'bali_bookings_v1', 'bali_reminder_state', 'bali_exchange_rate_v1'
 ];
+window.BALI_SYNC_KEYS = SYNC_KEYS;
+let activeExchangeRateEURtoIDR = Number(BALI_TRIP_DATA.meta.exchangeRateEURtoIDR) || 17500;
+
+function getActiveExchangeRate() { return activeExchangeRateEURtoIDR; }
+window.setActiveExchangeRate = value => {
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) activeExchangeRateEURtoIDR = parsed;
+};
 
 const h = value => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -32,6 +41,7 @@ function safeExternalUrl(value) {
 function saveJSON(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
   scheduleBackendSync();
+  window.scheduleCloudSync?.();
 }
 
 function removeStoredKey(key) {
@@ -80,6 +90,7 @@ async function initApp() {
   initModalAccessibility();
   updateWalletTotals();
   registerServiceWorker();
+  await window.initModernFeatures?.();
   weatherRefreshTimer = window.setInterval(() => refreshWeather(), 10 * 60 * 1000);
 }
 
@@ -188,7 +199,8 @@ function initNavigation() {
   document.querySelectorAll('.modal-overlay').forEach(o => {
     o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); });
   });
-  activateView('dashboard');
+  const requested = new URLSearchParams(window.location.search).get('view');
+  activateView(['dashboard','itinerary','excursions','budget','food','guide','bookings','travel'].includes(requested) ? requested : 'dashboard');
 }
 
 function activateView(view) {
@@ -1473,7 +1485,9 @@ window.parsePastedEmail = function() {
   ];
   const found = candidates.find(candidate => lower.includes(candidate.test));
   if (!found) {
-    if(res) res.innerHTML='<span style="color:var(--accent-amber);">Nessuna prenotazione conosciuta riconosciuta: nessun dato è stato modificato.</span>';
+    const extracted=window.ModernFeatures?.extractBookingFromText?.(text,{subject:'Conferma incollata',from:'Importazione manuale'});
+    if(extracted&&window.getBookings){const bookings=window.getBookings();bookings.push(extracted);saveJSON('bali_bookings_v1',bookings);window.renderBookings?.();window.renderReminders?.();if(res)res.innerHTML='<span style="color:var(--accent-emerald);">Conferma aggiunta al Centro prenotazioni. Verifica i dettagli estratti.</span>';return;}
+    if(res) res.innerHTML='<span style="color:var(--accent-amber);">Nessuna prenotazione riconosciuta: nessun dato è stato modificato.</span>';
     return;
   }
   const st=getBudgetPaidState();
@@ -1483,6 +1497,8 @@ window.parsePastedEmail = function() {
   const hotel = hotels.find(item => item.id === found.hotelId);
   if (hotel) hotel.bookingCode = code;
   saveHotels(hotels);
+  const extracted=window.ModernFeatures?.extractBookingFromText?.(text,{subject:hotel?.name||'Conferma incollata',from:'Importazione manuale'});
+  if(extracted&&window.getBookings){const bookings=window.getBookings();const existing=bookings.find(item=>item.id===`BOOK-${found.hotelId}`);if(existing){existing.code=code;existing.status='Confermata';existing.source='Importazione manuale';}else bookings.push({...extracted,type:'Hotel',title:hotel?.name||extracted.title,code});saveJSON('bali_bookings_v1',bookings);window.renderBookings?.();window.renderReminders?.();}
   if(res) res.innerHTML=`<div style="color:var(--accent-emerald);font-weight:700;">✅ Conferma riconosciuta e aggiornata</div>
     <div style="font-size:11px;margin-top:4px;">Servizio: <strong>${h(hotel?.name || found.hotelId)}</strong> • Codice: <strong>${h(code)}</strong>${Number.isFinite(price)?` • Importo: <strong>${h(currency)} ${price.toLocaleString('it-IT')}</strong>`:''}</div>`;
   renderBudget(); renderDashboard();
@@ -1507,7 +1523,7 @@ window.parseRevolutCSV = function() {
   const csv=document.getElementById('revolut-csv-paste')?.value||'';
   if(!csv.trim()) return;
   const expenses=getLoggedExpenses(); let added=0;
-  const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
+  const rate=getActiveExchangeRate();
   const existing = new Set(expenses.map(expense => expense.id));
   csv.split(/\r?\n/).forEach(line=>{
     const p=parseCSVLine(line); if(p.length<3) return;
@@ -1518,6 +1534,7 @@ window.parseRevolutCSV = function() {
     existing.add(id);
     expenses.push({id,desc,wallet:cur==='IDR'?'revolut_idr':'revolut_eur',
       amountEUR:cur==='IDR'?amt/rate:amt, amountIDR:cur==='IDR'?amt:amt*rate,
+      rateApplied:rate,
       date:(p[0]||'').trim()||new Date().toLocaleDateString('it-IT')});
     added++;
   });
@@ -1533,9 +1550,8 @@ window.parseRevolutCSV = function() {
 function initCurrencyConverter() {
   const eur=document.getElementById('calc-eur'), idr=document.getElementById('calc-idr');
   if(!eur||!idr) return;
-  const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
-  eur.addEventListener('input',()=>{ const v=parseFloat(eur.value); idr.value=isNaN(v)?'':Math.round(v*rate).toLocaleString('it-IT'); });
-  idr.addEventListener('input',()=>{ const v=parseFloat(idr.value.replace(/\./g,'').replace(/,/g,'')); eur.value=isNaN(v)?'':(v/rate).toFixed(2); });
+  eur.addEventListener('input',()=>{ const v=parseFloat(eur.value),rate=getActiveExchangeRate(); idr.value=isNaN(v)?'':Math.round(v*rate).toLocaleString('it-IT'); });
+  idr.addEventListener('input',()=>{ const v=parseFloat(idr.value.replace(/\./g,'').replace(/,/g,'')),rate=getActiveExchangeRate(); eur.value=isNaN(v)?'':(v/rate).toFixed(2); });
 }
 
 function getLoggedExpenses() { try{const value=JSON.parse(localStorage.getItem('bali_user_expenses')||'[]');return Array.isArray(value)?value.map((item,index)=>({...item,id:/^[A-Za-z0-9_-]{1,120}$/.test(String(item.id||''))?item.id:`EXP-${index+1}`,amountEUR:Number(item.amountEUR)||0,amountIDR:Number(item.amountIDR)||0})):[];}catch(e){return[];} }
@@ -1549,10 +1565,11 @@ function initExpenseLogger() {
     const wallet=document.getElementById('exp-wallet').value;
     const raw=parseFloat(document.getElementById('exp-amount').value);
     if(!desc||isNaN(raw)||raw<=0){ alert('Inserisci un importo maggiore di zero.'); return; }
-    const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
+    const requestedRate=parseFloat(document.getElementById('exp-rate')?.value);
+    const rate=Number.isFinite(requestedRate)&&requestedRate>0?requestedRate:getActiveExchangeRate();
     const isIDR=['revolut_idr','cash_idr','atm_withdrawal'].includes(wallet);
     const expenses=getLoggedExpenses();
-    expenses.push({id:`EXP-${Date.now()}`,desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,date:new Date().toLocaleDateString('it-IT')});
+    expenses.push({id:`EXP-${Date.now()}`,desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,rateApplied:rate,date:new Date().toLocaleDateString('it-IT')});
     saveJSON('bali_user_expenses', expenses);
     document.getElementById('exp-desc').value=''; document.getElementById('exp-amount').value='';
     renderLoggedExpensesList(); renderDashboard(); updateWalletTotals();
@@ -1586,7 +1603,7 @@ function renderLoggedExpensesList() {
 }
 
 function updateWalletTotals() {
-  const expenses=getLoggedExpenses(); const rate=BALI_TRIP_DATA.meta.exchangeRateEURtoIDR;
+  const expenses=getLoggedExpenses(); const rate=getActiveExchangeRate();
   let revEUR=0,cashSpentIDR=0,withdrawnIDR=0;
   expenses.forEach(e=>{
     if(e.wallet==='revolut_eur') revEUR+=e.amountEUR;
@@ -1621,10 +1638,10 @@ function initSearch() {
 
 window.exportTripBackupData = function() {
   const data=JSON.stringify({
-    schemaVersion:2,
+    schemaVersion:3,
     tripMeta:BALI_TRIP_DATA.meta, budgetItems:getBudgetItems(), paidState:getBudgetPaidState(),
     itinerary:getItinerary(), accommodations:getHotels(), food:getFoodItems(),
-    excursions:getExcursions(),
+    excursions:getExcursions(), bookings:window.getBookings?.() || [],
     checklistItems:getChecklistItems(), checklistState:getChecklistState(),
     pianoB:getPianoB(), drivers:getDrivers(), photoSpots:getPhotoSpots(),
     loggedExpenses:getLoggedExpenses(), exportDate:new Date().toISOString()
@@ -1650,7 +1667,7 @@ function initBackupImport() {
       if(!confirm('Ripristinare questo backup? I dati correnti sul dispositivo saranno sostituiti.'))return;
       const mapping={
         budgetItems:BUDGET_KEY,paidState:BUDGET_PAID_KEY,itinerary:ITIN_KEY,accommodations:HOTELS_KEY,
-        food:FOOD_KEY,excursions:EXCURSIONS_KEY,checklistItems:CHECKLIST_KEY,checklistState:CHECKLIST_STATE_KEY,
+        food:FOOD_KEY,excursions:EXCURSIONS_KEY,bookings:'bali_bookings_v1',checklistItems:CHECKLIST_KEY,checklistState:CHECKLIST_STATE_KEY,
         pianoB:PIANOB_KEY,drivers:DRIVERS_KEY,photoSpots:PHOTOS_KEY,loggedExpenses:'bali_user_expenses'
       };
       Object.entries(mapping).forEach(([source,key])=>{
@@ -1732,5 +1749,10 @@ window.configureBackendSync=async function() {
    18. PWA
    ═══════════════════════════════════════════════════════ */
 function registerServiceWorker() {
-  if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+    navigator.serviceWorker.addEventListener('message', event => {
+      if(event.data?.type==='OPEN_TRAVEL_MODE'){ activateView('travel'); window.renderTravelMode?.(); }
+    });
+  }
 }

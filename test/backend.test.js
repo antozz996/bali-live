@@ -32,11 +32,15 @@ test('API protegge lo stato e non espone file privati', async t => {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const stateStore = new StateStore(path.join(directory, 'state.json'));
   const weatherService = { getWeather: async () => ({ source: 'test', fetchedAt: new Date().toISOString(), locations: [] }) };
-  await withServer({ stateStore, weatherService, syncToken: 'secret' }, async baseUrl => {
+  const exchangeService = { getRate: async () => ({ source: 'test', rate: 20000, asOf: '2026-08-02' }) };
+  await withServer({ stateStore, weatherService, exchangeService, syncToken: 'secret' }, async baseUrl => {
     assert.equal((await fetch(`${baseUrl}/api/health`)).status, 200);
+    assert.equal((await (await fetch(`${baseUrl}/api/exchange`)).json()).rate, 20000);
+    assert.equal((await (await fetch(`${baseUrl}/api/config`)).json()).gmailEnabled, false);
     assert.equal((await fetch(`${baseUrl}/api/state`)).status, 401);
     assert.equal((await fetch(`${baseUrl}/.git/config`)).status, 404);
     assert.equal((await fetch(`${baseUrl}/backend/app.js`)).status, 404);
+    assert.equal((await fetch(`${baseUrl}/privacy.html`)).status, 200);
 
     const put = await fetch(`${baseUrl}/api/state`, {
       method: 'PUT',

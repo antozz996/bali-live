@@ -8,14 +8,6 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Bali 2026 - Control Center & Travel App</title>
   
-  <!-- Google Fonts -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  
-  <!-- FontAwesome Icons -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
   <!-- Web App Stylesheet -->
   <link rel="stylesheet" href="styles.css">
   <link rel="manifest" href="manifest.json">
@@ -35,6 +27,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <button class="icon-btn" onclick="activateView('travel');renderTravelMode()" title="Modalità viaggio" aria-label="Apri modalità viaggio" style="border-color:rgba(16,185,129,.4);color:var(--accent-emerald);">⌁</button>
         <button class="icon-btn" onclick="openGmailModal()" title="Importa conferma email" aria-label="Importa conferma email" style="border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);">
           <i class="fa-solid fa-envelope-open-text"></i>
         </button>
@@ -75,6 +68,8 @@
         <h2 class="section-title" id="dashboard-title">📊 Control Center Viaggio</h2>
       </div>
       <div id="dashboard-metrics"></div>
+      <div class="dashboard-shortcuts"><button class="btn-primary" onclick="activateView('bookings');renderBookings()">▣ Centro prenotazioni</button><button class="btn-cancel" onclick="activateView('travel');renderTravelMode()">⌁ Modalità viaggio</button></div>
+      <div id="dashboard-reminders" class="glass-card reminders-card"></div>
     </section>
 
     <!-- 2. ITINERARY PANEL (Itinerario + Alloggi) -->
@@ -160,6 +155,7 @@
             <input type="text" id="calc-idr" class="calc-input" placeholder="1.750.000">
           </div>
         </div>
+        <div class="exchange-live-row"><span id="exchange-rate-status">Aggiornamento cambio EUR/IDR…</span><button class="link-btn" onclick="refreshExchange(true)">Aggiorna</button></div>
       </div>
 
       <!-- Quick Expense Logger -->
@@ -177,6 +173,7 @@
             </select>
             <input type="number" id="exp-amount" class="search-input" step="0.01" placeholder="Importo" style="flex: 1;" required>
           </div>
+          <input type="number" id="exp-rate" class="search-input" min="1" step="1" placeholder="Cambio applicato (opzionale, es. 20742)" aria-label="Cambio EUR IDR applicato">
 
           <button type="submit" class="btn-primary" style="margin-top: 4px;">Salva Spesa</button>
         </form>
@@ -205,6 +202,18 @@
       </div>
 
       <div id="food-content"></div>
+    </section>
+
+    <section id="view-bookings" class="view-panel" aria-labelledby="bookings-title">
+      <div class="section-header"><div><h2 class="section-title" id="bookings-title">▣ Centro prenotazioni</h2><span class="section-subtitle">Voli, hotel, escursioni e transfer</span></div></div>
+      <div id="bookings-content"></div>
+      <div class="glass-card" id="vault-content"></div>
+    </section>
+
+    <section id="view-travel" class="view-panel" aria-labelledby="travel-title">
+      <div class="section-header"><div><h2 class="section-title" id="travel-title">⌁ Modalità viaggio</h2><span class="section-subtitle">Solo ciò che serve adesso</span></div></div>
+      <div id="travel-content"></div>
+      <div id="travel-reminders" class="glass-card reminders-card"></div>
     </section>
 
     <!-- 5. UTILITY PANEL (Checklist + Guida + Piano B) -->
@@ -250,6 +259,11 @@
       <div id="survival-guide-content" style="margin-bottom: 20px;"></div>
 
       <!-- Export Data & Backup -->
+      <div class="glass-card account-card">
+        <div><strong>Account Google & Cloud</strong><div class="status-note" data-google-account>Nessun account connesso</div><div id="cloud-account-status" class="status-note">Accedi con Google per la sincronizzazione cloud.</div></div>
+        <div class="feature-actions"><button class="btn-primary" onclick="openGmailModal()">Connetti Gmail</button><button class="btn-cancel" onclick="cloudPull()">Scarica cloud</button><button class="btn-cancel" onclick="cloudPush()">Carica cloud</button></div>
+      </div>
+
       <div class="glass-card" style="text-align: center;">
         <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">💾 Backup & Condivisione Dati Viaggio</div>
         <div class="backup-actions">
@@ -265,6 +279,7 @@
         </button>
         </div>
         <div id="sync-status" class="status-note" aria-live="polite">Dati salvati sul dispositivo.</div>
+        <a class="privacy-link" href="privacy.html">Privacy e trattamento dati</a>
       </div>
     </section>
 
@@ -305,9 +320,14 @@
         <button class="close-btn" onclick="closeGmailModal()" aria-label="Chiudi">✕</button>
       </div>
 
-      <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
-        Incolla il testo di una conferma Booking.com, Emirates o di un voucher. Il testo resta sul dispositivo e viene usato solo per aggiornare una prenotazione già riconosciuta.
-      </div>
+      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Accedi con Google e autorizza Gmail in sola lettura. L’app cerca conferme di viaggio, mostra un’anteprima e importa solo quelle che scegli. Il token resta in memoria.</div>
+      <div class="gmail-account"><span data-google-account>Nessun account connesso</span><div><button id="gmail-connect-btn" class="btn-primary" onclick="connectGmail()">Accedi con Google</button><button id="gmail-disconnect-btn" class="btn-cancel" onclick="disconnectGmail()" style="display:none;">Disconnetti</button></div></div>
+      <button id="gmail-scan-btn" class="btn-primary" onclick="scanGmailConfirmations()" style="width:100%;" disabled>⌕ Cerca conferme Gmail</button>
+      <div id="gmail-status" class="status-note" aria-live="polite">Gmail non connesso.</div>
+      <div id="gmail-results" class="gmail-results"></div>
+
+      <details class="manual-import"><summary>Importazione manuale alternativa</summary>
+      <div style="font-size:12px;color:var(--text-secondary);margin:10px 0;">Incolla il testo di una conferma. Rimane sul dispositivo.</div>
 
       <textarea id="email-paste-area" class="search-input" style="height: 100px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Incolla qui l'email di Booking.com, volo Emirates o voucher GetYourGuide..."></textarea>
       
@@ -316,6 +336,7 @@
       </button>
 
       <div id="parse-result-status" style="margin-top: 10px; font-size: 12px;"></div>
+      </details>
     </div>
   </div>
 
@@ -353,5 +374,7 @@
   <!-- Application Logic -->
   <script src="data.js"></script>
   <script src="app.js"></script>
+  <script src="vault.js"></script>
+  <script src="features.js"></script>
 </body>
 </html>

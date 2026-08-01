@@ -1,0 +1,16 @@
+{
+  "name": "bali-live",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Bali 2026 travel control center with live weather and a small Node.js backend",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "check": "node --check server.js && node --check backend/app.js && node --check backend/weather.js && node --check backend/state-store.js && node --check data.js && node --check app.js && node --check sw.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

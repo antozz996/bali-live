@@ -28,7 +28,9 @@ Non inserire codici di prenotazione reali in una repository pubblica. I backup p
 
 ## Deployment
 
-`server.js` è adatto a un VPS, container o servizio Node con disco persistente. Un filesystem serverless effimero, come quello delle normali Functions, non è sufficiente per `/api/state`: in quel caso sostituire `StateStore` con Postgres/KV mantenendo lo stesso contratto API. Il meteo non richiede chiavi API.
+`server.js` è adatto a un VPS, container o servizio Node con disco persistente. Su Vercel, `api/weather.js` e `api/health.js` vengono pubblicati automaticamente come Functions Node.js; la cache meteo usa `/tmp` e non richiede chiavi API.
+
+Un filesystem serverless effimero non è sufficiente per `/api/state`, quindi la sincronizzazione dello stato resta disabilitata su Vercel. Per abilitarla in produzione, sostituire `StateStore` con Postgres/KV mantenendo lo stesso contratto API. Il frontend continua comunque a salvare tutti i dati sul dispositivo e a supportare backup e ripristino JSON.
 
 ## Verifica
 

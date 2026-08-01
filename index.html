@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#080c14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Bali 2026 - Control Center & Travel App</title>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  
+  <!-- Web App Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+  <div id="app">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-brand">
+        <div class="brand-icon">🌺</div>
+        <div>
+          <div class="brand-title">BALI 2026</div>
+          <div class="brand-subtitle">Control Center • 15-29 Settembre</div>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="icon-btn" onclick="openGmailModal()" title="Aggancia Gmail / Parser Email" style="border-color: rgba(6, 182, 212, 0.4); color: var(--accent-cyan);">
+          <i class="fa-solid fa-envelope-open-text"></i>
+        </button>
+        <button class="icon-btn" onclick="openEmergencyModal()" title="Numeri Emergenza Bali" style="border-color: rgba(244, 63, 94, 0.4); color: var(--accent-coral);">
+          <i class="fa-solid fa-phone-volume"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Weather Bar Widget -->
+    <div class="weather-bar" id="weather-widget"></div>
+
+    <!-- Countdown Banner -->
+    <div class="countdown-banner">
+      <div class="countdown-info">
+        <h3>Partenza Imminente</h3>
+        <p>15 Settembre 2026 • Volo EK096 FCO</p>
+      </div>
+      <div class="countdown-timer">
+        <div class="time-box">
+          <div class="time-val" id="days-val">--</div>
+          <div class="time-lbl">Giorni</div>
+        </div>
+        <div class="time-box">
+          <div class="time-val" id="hours-val">--</div>
+          <div class="time-lbl">Ore</div>
+        </div>
+        <div class="time-box">
+          <div class="time-val" id="mins-val">--</div>
+          <div class="time-lbl">Min</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 1. DASHBOARD PANEL (Home) -->
+    <main id="view-dashboard" class="view-panel active">
+      <div class="section-header">
+        <h2 class="section-title">📊 Control Center Viaggio</h2>
+      </div>
+      <div id="dashboard-metrics"></div>
+    </main>
+
+    <!-- 2. ITINERARY PANEL (Itinerario + Alloggi) -->
+    <main id="view-itinerary" class="view-panel">
+      <div class="section-header">
+        <h2 class="section-title">🏨 Alloggi Prenotati</h2>
+      </div>
+      
+      <!-- Accommodations slider/list embedded directly in Itinerary for clean consolidation -->
+      <div id="accommodations-content" style="margin-bottom: 20px;"></div>
+
+      <div class="section-header">
+        <h2 class="section-title">🗓️ Itinerario Giorno per Giorno</h2>
+      </div>
+      
+      <!-- Region Filter Chips -->
+      <div class="filter-chips-bar" id="itinerary-region-chips">
+        <button class="chip-btn active" onclick="filterItineraryByRegion('Tutti')">Tutti (15 giorni)</button>
+        <button class="chip-btn" onclick="filterItineraryByRegion('Ubud')">Ubud</button>
+        <button class="chip-btn" onclick="filterItineraryByRegion('Gili Air')">Gili Air</button>
+        <button class="chip-btn" onclick="filterItineraryByRegion('Uluwatu')">Jimbaran/Uluwatu</button>
+        <button class="chip-btn" onclick="filterItineraryByRegion('Voli')">Voli & Transfer</button>
+      </div>
+
+      <!-- Day Selector Carousel -->
+      <div class="day-selector" id="day-selector-container"></div>
+      
+      <!-- Detailed Day View -->
+      <div id="itinerary-content"></div>
+    </main>
+
+    <!-- 3. BUDGET & EXPENSE LOGGER PANEL (Budget) -->
+    <main id="view-budget" class="view-panel">
+      <div class="section-header">
+        <h2 class="section-title">💶 Budget & Convertitore IDR</h2>
+      </div>
+
+      <!-- Multi-Wallet Balance Banner -->
+      <div class="glass-card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(16, 185, 129, 0.1)); border-color: rgba(99, 102, 241, 0.3);">
+        <div style="font-size: 13px; font-weight: 800; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">
+          💳 Portafogli & Saldatori Attivi
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div style="background: rgba(8, 12, 20, 0.7); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color);">
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">REVOLUT (Speso)</div>
+            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: #a5b4fc;" id="wallet-revolut-total">€0,00</div>
+          </div>
+          <div style="background: rgba(8, 12, 20, 0.7); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color);">
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">CONTANTI (Speso IDR)</div>
+            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-emerald);" id="wallet-cash-total">Rp 0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live IDR <-> EUR Calculator -->
+      <div class="converter-box">
+        <div style="font-family: var(--font-heading); font-size: 14px; font-weight: 800; color: var(--accent-cyan);">
+          🔄 Convertitore Rapido Euro ↔ Rupia Indonesiana
+        </div>
+        <div class="converter-inputs">
+          <div class="calc-input-wrap">
+            <label>Euro (€)</label>
+            <input type="number" id="calc-eur" class="calc-input" placeholder="100">
+          </div>
+          <div class="swap-icon">⇄</div>
+          <div class="calc-input-wrap">
+            <label>Rupie IDR (Rp)</label>
+            <input type="text" id="calc-idr" class="calc-input" placeholder="1.750.000">
+          </div>
+        </div>
+      </div>
+
+      <!-- Quick Expense Logger -->
+      <div class="glass-card">
+        <div style="font-family: var(--font-heading); font-size: 15px; font-weight: 800;">➕ Aggiungi Spesa (Revolut / Contanti)</div>
+        <form id="expense-form" class="expense-log-form">
+          <input type="text" id="exp-desc" class="search-input" placeholder="Es. Nasi Goreng, Taxi Grab, Prelievo ATM" required>
+          
+          <div class="form-row">
+            <select id="exp-wallet" class="search-input" style="flex: 1; font-weight: 700;">
+              <option value="revolut_eur">💳 Revolut (in €)</option>
+              <option value="revolut_idr">💳 Revolut (in Rupie IDR)</option>
+              <option value="cash_idr">💵 Contanti IDR (Cash)</option>
+              <option value="atm_withdrawal">🏦 Prelievo ATM (IDR)</option>
+            </select>
+            <input type="number" id="exp-amount" class="search-input" step="0.01" placeholder="Importo" style="flex: 1;" required>
+          </div>
+
+          <button type="submit" class="btn-primary" style="margin-top: 4px;">Salva Spesa</button>
+        </form>
+
+        <div style="margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border-color); display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 12px; color: var(--text-secondary); font-weight: 600;">Estratto Conto Revolut CSV</span>
+          <button onclick="openRevolutCSVModal()" class="link-btn" style="cursor: pointer;"><i class="fa-solid fa-file-csv"></i> Importa CSV Revolut</button>
+        </div>
+
+        <div id="logged-expenses-list" style="margin-top: 12px;"></div>
+      </div>
+
+      <div id="budget-content"></div>
+    </main>
+
+    <!-- 4. FOOD PANEL (Ristoranti) -->
+    <main id="view-food" class="view-panel">
+      <div class="section-header">
+        <h2 class="section-title">🍕 Ristoranti & Cene</h2>
+        <span class="section-subtitle">Consigliati & Must Book</span>
+      </div>
+
+      <div class="search-container search-wrapper">
+        <i class="fa-solid fa-magnifying-glass search-icon-inside"></i>
+        <input type="text" id="global-search" class="search-input" placeholder="Cerca locale o area (Ubud, Gili, Sayan...)">
+      </div>
+
+      <div id="food-content"></div>
+    </main>
+
+    <!-- 5. UTILITY PANEL (Checklist + Guida + Piano B) -->
+    <main id="view-guide" class="view-panel">
+      <!-- Consolidated tab containing Checklist, emergency info, survival guide, photo spots & PWA backup -->
+      <div class="section-header">
+        <h2 class="section-title">✅ Checklist Documenti</h2>
+        <span class="section-subtitle" id="checklist-progress-text">0% completato</span>
+      </div>
+      
+      <div class="progress-bar-bg" style="margin-bottom: 14px;">
+        <div class="progress-bar-fill" id="checklist-progress-bar" style="width: 0%;"></div>
+      </div>
+
+      <div id="checklist-content" style="margin-bottom: 24px;"></div>
+
+      <div class="section-header">
+        <h2 class="section-title" style="color: var(--accent-coral)">🚨 Piano B & Contingenze</h2>
+      </div>
+      <div id="piano-b-content" style="margin-bottom: 24px;"></div>
+
+      <div class="section-header">
+        <h2 class="section-title">🌴 Guida Survival Bali & Driver</h2>
+      </div>
+
+      <!-- Drivers & WhatsApp direct launcher -->
+      <div class="glass-card">
+        <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: #25D366; margin-bottom: 10px;">
+          <i class="fa-brands fa-whatsapp"></i> Driver Privati & Contatti WhatsApp
+        </div>
+        <div id="drivers-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+      </div>
+
+      <!-- Photo Spots Guide -->
+      <div class="glass-card">
+        <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-amber); margin-bottom: 10px;">
+          📸 Mappa Photo Spots & Orari Migliori
+        </div>
+        <div id="photo-spots-list" style="display: flex; flex-direction: column; gap: 8px;"></div>
+      </div>
+
+      <!-- Survival Tips -->
+      <div id="survival-guide-content" style="margin-bottom: 20px;"></div>
+
+      <!-- Export Data & Backup -->
+      <div class="glass-card" style="text-align: center;">
+        <div style="font-size: 13px; font-weight: 700; margin-bottom: 8px;">💾 Backup & Condivisione Dati Viaggio</div>
+        <button class="btn-primary" onclick="exportTripBackupData()" style="width: 100%; background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple)); color: #fff;">
+          <i class="fa-solid fa-download"></i> Scarica Backup JSON
+        </button>
+      </div>
+    </main>
+
+    <!-- Bottom Navigation Bar (Consolidated 5 Tabs for Perfect Spacing) -->
+    <nav class="bottom-nav">
+      <button class="nav-item active" data-view="dashboard" id="nav-dashboard">
+        <i class="fa-solid fa-chart-pie"></i>
+        <span>Home</span>
+      </button>
+      <button class="nav-item" data-view="itinerary" id="nav-itinerary">
+        <i class="fa-solid fa-calendar-days"></i>
+        <span>Itinerario</span>
+      </button>
+      <button class="nav-item" data-view="budget" id="nav-budget">
+        <i class="fa-solid fa-wallet"></i>
+        <span>Budget</span>
+      </button>
+      <button class="nav-item" data-view="food" id="nav-food">
+        <i class="fa-solid fa-utensils"></i>
+        <span>Food</span>
+      </button>
+      <button class="nav-item" data-view="guide" id="nav-guide">
+        <i class="fa-solid fa-compass"></i>
+        <span>Utility</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Gmail & Email Parser Modal -->
+  <div class="modal-overlay" id="gmail-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" style="color: var(--accent-cyan);"><i class="fa-brands fa-google"></i> Aggancio Gmail & Lettura Conferme</div>
+        <button class="close-btn" onclick="closeGmailModal()">✕</button>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 14px;">
+        Collega il tuo account <strong>Gmail</strong> per scansionare automaticamente i messaggi di Booking.com, Emirates, GetYourGuide o <strong>incolla il testo dell'email</strong> di conferma nel riquadro qui sotto.
+      </div>
+
+      <button class="btn-primary" onclick="simulateGmailOAuthSync()" style="width: 100%; margin-bottom: 14px; background: linear-gradient(135deg, #4285F4, #34A853); color: #fff;">
+        <i class="fa-brands fa-google"></i> Sincronizza Gmail Automaticamente (OAuth)
+      </button>
+
+      <div style="text-align: center; font-size: 11px; color: var(--text-muted); margin-bottom: 10px;">OPPURE INCOLLA IL TESTO DELL'EMAIL</div>
+
+      <textarea id="email-paste-area" class="search-input" style="height: 100px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Incolla qui l'email di Booking.com, volo Emirates o voucher GetYourGuide..."></textarea>
+      
+      <button class="btn-primary" onclick="parsePastedEmail()" style="width: 100%; margin-top: 10px;">
+        ⚡ Analizza Email & Inserisci Prenotazione
+      </button>
+
+      <div id="parse-result-status" style="margin-top: 10px; font-size: 12px;"></div>
+    </div>
+  </div>
+
+  <!-- Import Revolut CSV Modal -->
+  <div class="modal-overlay" id="revolut-csv-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" style="color: #818cf8;"><i class="fa-solid fa-file-csv"></i> Importa Estratto Conto Revolut</div>
+        <button class="close-btn" onclick="closeRevolutCSVModal()">✕</button>
+      </div>
+
+      <div style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+        Incolla le righe CSV dell'estratto conto Revolut (es. <code>2026-09-18,Dinner Ubud,45.00,EUR</code>) o trascina il testo:
+      </div>
+
+      <textarea id="revolut-csv-paste" class="search-input" style="height: 110px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Date, Description, Amount, Currency&#10;2026-09-17, Kailasha Ubud, 32.50, EUR&#10;2026-09-20, Grab Taxi Padang Bai, 250000, IDR"></textarea>
+
+      <button class="btn-primary" onclick="parseRevolutCSV()" style="width: 100%; margin-top: 10px; background: linear-gradient(135deg, #6366f1, #06b6d4); color: #fff;">
+        🚀 Importa Spese Revolut
+      </button>
+    </div>
+  </div>
+
+  <!-- Emergency Contacts Modal -->
+  <div class="modal-overlay" id="emergency-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title" style="color: var(--accent-coral);"><i class="fa-solid fa-shield-cat"></i> Numeri Utili & Emergenza Bali</div>
+        <button class="close-btn" onclick="closeEmergencyModal()">✕</button>
+      </div>
+      <div id="emergency-contacts-list" style="display: flex; flex-direction: column; gap: 10px;"></div>
+    </div>
+  </div>
+
+  <!-- Application Logic -->
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

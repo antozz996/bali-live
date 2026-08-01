@@ -140,10 +140,10 @@ function renderWeatherWidget(payload) {
   c.innerHTML = locations.map(w => `
     <div class="weather-chip">
       <span class="weather-area">${h(w.name)}</span>
-      <span aria-hidden="true">${h(w.icon)}</span>
+      <span class="weather-symbol weather-${Number(w.weatherCode) || 0}" aria-hidden="true"></span>
       <span class="weather-details">
         <span class="weather-temp">${Number(w.temperatureC).toFixed(0)}°C</span>
-        <span class="weather-extra">${h(w.description)} · 💧${h(w.humidityPercent)}% · ${h(w.today?.minTemperatureC)}°/${h(w.today?.maxTemperatureC)}°</span>
+        <span class="weather-extra">${h(w.description)} · UR ${h(w.humidityPercent)}% · ${h(w.today?.minTemperatureC)}°/${h(w.today?.maxTemperatureC)}°</span>
       </span>
     </div>`).join('') + `
     <button class="icon-btn weather-refresh" onclick="refreshWeather(true)" aria-label="Aggiorna meteo" title="Aggiorna meteo">↻</button>`;
@@ -435,17 +435,17 @@ function renderDashboard() {
   const bookedExcursions = excursions.filter(excursion => excursion.status === 'Prenotata').length;
   c.innerHTML = `
     <div class="metrics-grid">
-      <div class="metric-card"><div class="metric-icon">💰</div><div class="metric-label">Budget Max</div>
+      <div class="metric-card"><div class="metric-icon">EUR</div><div class="metric-label">Budget Max</div>
         <div class="metric-value">€${budgetMax.toLocaleString('it-IT',{minimumFractionDigits:2})}</div><div class="metric-foot">2 Viaggiatori</div></div>
-      <div class="metric-card"><div class="metric-icon">💳</div><div class="metric-label">Pagato</div>
+      <div class="metric-card"><div class="metric-icon">OK</div><div class="metric-label">Pagato</div>
         <div class="metric-value" style="color:var(--accent-emerald);">€${totalPaid.toLocaleString('it-IT',{minimumFractionDigits:2})}</div><div class="metric-foot">${pct}% del totale</div></div>
-      <div class="metric-card"><div class="metric-icon">🧾</div><div class="metric-label">Spese viaggio</div>
+      <div class="metric-card"><div class="metric-icon">EXP</div><div class="metric-label">Spese viaggio</div>
         <div class="metric-value">€${actualExpenses.toFixed(2)}</div><div class="metric-foot">Prelievi esclusi</div></div>
-      <div class="metric-card"><div class="metric-icon">🏨</div><div class="metric-label">Notti</div>
+      <div class="metric-card"><div class="metric-icon">N</div><div class="metric-label">Notti</div>
         <div class="metric-value">${nights}</div><div class="metric-foot">${hotels.length} alloggi</div></div>
-      <div class="metric-card"><div class="metric-icon">✅</div><div class="metric-label">Hotel</div>
+      <div class="metric-card"><div class="metric-icon">H</div><div class="metric-label">Hotel</div>
         <div class="metric-value">${hotels.length}</div><div class="metric-foot">Prenotazioni salvate</div></div>
-      <div class="metric-card"><div class="metric-icon">🧭</div><div class="metric-label">Escursioni</div>
+      <div class="metric-card"><div class="metric-icon">TOUR</div><div class="metric-label">Escursioni</div>
         <div class="metric-value">${bookedExcursions}/${excursions.length}</div><div class="metric-foot">Prenotate</div></div>
     </div>
     <div class="glass-card">

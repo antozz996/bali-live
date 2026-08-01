@@ -123,7 +123,7 @@
     const confirmed=bookings.filter(item=>/confermata|prenotata|completata/i.test(item.status)).length;
     container.innerHTML=`
       <div class="metrics-grid booking-metrics"><div class="metric-card"><div class="metric-label">Totali</div><div class="metric-value">${bookings.length}</div></div><div class="metric-card"><div class="metric-label">Confermate</div><div class="metric-value">${confirmed}</div></div><div class="metric-card"><div class="metric-label">Valore</div><div class="metric-value">€${total.toFixed(0)}</div></div></div>
-      <div class="feature-actions"><button class="btn-primary" onclick="bookingStartAdd()">＋ Prenotazione</button><button class="btn-cancel" onclick="openGmailModal()">✉ Importa Gmail</button></div>
+      <div class="feature-actions"><button class="btn-primary" onclick="bookingStartAdd()">+ Prenotazione</button><button class="btn-cancel" onclick="openGmailModal()">Importa Gmail</button></div>
       <div id="booking-form" class="glass-card" style="display:none;"></div>
       <div class="booking-list">${bookings.map(bookingCard).join('')}</div>`;
     renderVault();
@@ -329,7 +329,7 @@
     const weather=(()=>{try{return JSON.parse(localStorage.getItem('bali_last_weather')||'null');}catch{return null;}})();
     const weatherLocation=weather?.locations?.find(item=>String(day.location).toLowerCase().includes(String(item.name).toLowerCase()))||weather?.locations?.[0];
     container.innerHTML=`<div class="travel-hero"><span>Giorno ${day.dayNum} · ${esc(day.date)}</span><h2>${esc(day.location)}</h2><p>${esc(day.phase||'')}</p></div>
-      ${weatherLocation?`<div class="glass-card travel-weather"><strong>${esc(weatherLocation.name)} ${esc(weatherLocation.icon)} ${Math.round(weatherLocation.temperatureC)}°C</strong><span>${esc(weatherLocation.description)} · percepiti ${Math.round(weatherLocation.apparentTemperatureC)}°</span></div>`:''}
+      ${weatherLocation?`<div class="glass-card travel-weather"><strong><span class="weather-symbol weather-${Number(weatherLocation.weatherCode)||0}" aria-hidden="true"></span>${esc(weatherLocation.name)} · ${Math.round(weatherLocation.temperatureC)}°C</strong><span>${esc(weatherLocation.description)} · percepiti ${Math.round(weatherLocation.apparentTemperatureC)}°</span></div>`:''}
       <div class="glass-card"><div class="timeline-slot"><div class="time-tag">Mattina</div><div class="time-title">${esc(day.morning||'–')}</div></div><div class="timeline-slot"><div class="time-tag">Pomeriggio</div><div class="time-title">${esc(day.afternoon||'–')}</div></div><div class="timeline-slot"><div class="time-tag">Sera</div><div class="time-title">${esc(day.evening||'–')}</div></div></div>
       <div class="travel-quick"><button class="btn-primary" onclick="openItineraryDay(${day.dayNum})">Itinerario completo</button><button class="btn-cancel" onclick="activateView('budget');document.getElementById('exp-desc')?.focus()">Spesa rapida</button></div>
       ${(bookings.length||excursions.length)?`<div class="glass-card"><h3>Prenotazioni di giornata</h3>${bookings.map(item=>`<button class="travel-link" onclick="activateView('bookings');document.getElementById('booking-${item.id}')?.scrollIntoView()">${esc(item.type)} · ${esc(item.title)}</button>`).join('')}${excursions.map(item=>`<button class="travel-link" onclick="openExcursion('${item.id}')">Escursione · ${esc(item.name)}</button>`).join('')}</div>`:''}`;

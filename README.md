@@ -1,6 +1,6 @@
 # Bali Live
 
-Travel control center full-stack per Bali 2026: itinerario, prenotazioni, import Gmail, escursioni collegate ai giorni, cambio e meteo live, budget, documenti cifrati, sincronizzazione cloud e PWA offline.
+Travel control center full-stack per Bali 2026: itinerario, prenotazioni, import locale di conferme scelte, escursioni collegate ai giorni, cambio e meteo live, budget, documenti cifrati, sincronizzazione cloud e PWA offline.
 
 ## Avvio
 
@@ -28,17 +28,19 @@ Lo stato persistente e la cache meteo sono salvati in `.data/`, esclusa da Git. 
 
 Non inserire codici di prenotazione reali in una repository pubblica. I backup possono contenere dati di viaggio sensibili: conservarli in un luogo protetto. I documenti caricati nel vault vengono cifrati nel browser con AES-256-GCM; la passphrase non viene salvata e, se persa, i documenti non sono recuperabili. I contatti driver iniziali sono volutamente vuoti e devono essere configurati con i recapiti verificati.
 
-## Gmail OAuth
+## Account Google e importazione email
 
-L’integrazione usa Google Identity Services con token temporaneo conservato soltanto in memoria e scope `gmail.readonly`. L’app interroga Gmail direttamente dal browser, mostra le conferme trovate e salva soltanto i riepiloghi scelti dall’utente.
+Google Identity Services usa un token temporaneo conservato soltanto in memoria e gli scope di identità `openid email profile`. L’account serve a identificare l’utente per la sincronizzazione cloud: l’app non richiede permessi Gmail e non può accedere alla casella.
 
-1. Crea un progetto Google Cloud e abilita Gmail API.
+Le conferme vengono importate scegliendo un singolo file `.eml` scaricato dall’utente o incollando il testo del messaggio. Parsing e anteprima avvengono interamente nel browser; nulla viene aggiunto finché l’utente non preme **Importa**. Il contenuto integrale dell’email non viene inviato o conservato.
+
+1. Crea un progetto Google Cloud.
 2. Configura la schermata di consenso OAuth e aggiungi gli utenti di test.
 3. Crea un OAuth Client ID di tipo **Applicazione web**.
 4. Aggiungi `https://bali-live.vercel.app` alle origini JavaScript autorizzate; per sviluppo aggiungi anche l’origine locale usata.
 5. Imposta `GOOGLE_CLIENT_ID` nelle variabili Vercel per Production e Preview.
 
-Lo scope Gmail in sola lettura è classificato da Google come ristretto. Per un’app pubblica destinata a utenti diversi dai tester può essere necessaria la verifica OAuth. La pagina `privacy.html` descrive il trattamento applicato dall’app.
+Non occorre abilitare Gmail API. La pagina `privacy.html` descrive il trattamento applicato dall’app.
 
 ## Sincronizzazione cloud
 
@@ -50,7 +52,7 @@ Senza `DATABASE_URL`, l’app resta completamente utilizzabile in locale e conse
 
 `server.js` è adatto a un VPS, container o servizio Node con disco persistente. Su Vercel, i file nella cartella `api/` vengono pubblicati come Functions Node.js; le cache meteo/cambio usano `/tmp` e non richiedono chiavi API.
 
-Il frontend continua a salvare i dati sul dispositivo, supportare backup/ripristino JSON e avviarsi offline. Font e icone essenziali sono locali; Google Identity Services viene caricato solo quando l’utente sceglie di collegare Gmail.
+Il frontend continua a salvare i dati sul dispositivo, supportare backup/ripristino JSON e avviarsi offline. Font e icone essenziali sono locali; Google Identity Services viene caricato solo quando l’utente sceglie di collegare l’account per il cloud.
 
 ## Verifica
 

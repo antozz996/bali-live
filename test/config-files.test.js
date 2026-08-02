@@ -23,3 +23,13 @@ test('asset PWA principali sono locali e inclusi nella cache', () => {
     assert.match(worker,new RegExp(asset.replace('.','\\.')));
   }
 });
+
+test('login Google non richiede accesso alla casella email', () => {
+  const features=fs.readFileSync(path.join(root,'features.js'),'utf8');
+  const vercel=fs.readFileSync(path.join(root,'vercel.json'),'utf8');
+  assert.doesNotMatch(features,/gmail\.readonly|gmail\.googleapis\.com|scanGmailConfirmations|gmailFetch/);
+  assert.doesNotMatch(vercel,/gmail\.googleapis\.com/);
+  assert.match(features,/openid email profile/);
+  assert.match(features,/include_granted_scopes:false/);
+  assert.match(features,/handleConfirmationFile/);
+});

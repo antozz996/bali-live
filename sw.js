@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bali-2026-v3';
+const CACHE_NAME = 'bali-2026-v4';
 const API_CACHE = 'bali-2026-api-v1';
 const ASSETS_TO_CACHE = [
   './',

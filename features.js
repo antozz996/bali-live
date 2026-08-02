@@ -5,8 +5,8 @@
   const BOOKINGS_KEY = 'bali_bookings_v1';
   const EXCHANGE_KEY = 'bali_exchange_rate_v1';
   const REMINDER_KEY = 'bali_reminder_state';
-  const GMAIL_SCOPE = 'openid email profile https://www.googleapis.com/auth/gmail.readonly';
-  let config = { googleClientId: '', gmailEnabled: false, cloudSyncEnabled: false };
+  const GOOGLE_IDENTITY_SCOPE = 'openid email profile';
+  let config = { googleClientId: '', googleLoginEnabled: false, cloudSyncEnabled: false };
   let googleTokenClient = null;
   let googleAccessToken = '';
   let googleProfile = null;
@@ -54,18 +54,112 @@
       : /booking\.com|hotel|villa|resort|homestay|check-in/.test(lower) ? 'Hotel'
       : /getyourguide|escursione|tour|activity|voucher|snorkel|rafting|atv/.test(lower) ? 'Escursione'
       : /boat|traghetto|transfer|driver|taxi/.test(lower) ? 'Trasporto' : 'Altro';
-    const codeMatch = value.match(/(?:conferma|confirmation|booking|reservation|pnr|codice|reference|numero)\s*(?:number|no\.?|n\.?|[:#-])?\s*([A-Z0-9-]{5,16})/i);
+    const codeMatch = value.match(/(?:conferma|confirmation|booking|reservation|pnr|codice|reference|numero)\s*(?:(?:number|reference|code|codice|pnr|no\.?|n\.?)\s*)?(?:[:#-]\s*)?((?=[A-Z0-9-]*\d)[A-Z0-9-]{5,16})/i);
     const amountMatch = value.match(/(?:EUR|€)\s*([\d.,]+)/i) || value.match(/([\d.,]+)\s*(?:EUR|€)/i);
     const amount = amountMatch ? parseAmount(amountMatch[1]) : 0;
-    const title = String(metadata.subject || '').trim() || `${type} importata da Gmail`;
+    const title = String(metadata.subject || '').trim() || `${type} importata da email`;
     return {
       id: `BOOK-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type, title: title.slice(0, 160), provider: String(metadata.from || '').slice(0, 160),
       startDate: isoFromText(value), endDate: '', code: codeMatch?.[1] || '',
       amountEUR: Number.isFinite(amount) ? amount : 0, status: 'Confermata', paid: false,
-      cancellationDeadline: '', location: '', link: '', notes: 'Importata da Gmail; verificare i dettagli.',
-      source: 'Gmail', gmailMessageId: String(metadata.messageId || '')
+      cancellationDeadline: '', location: '', link: '', notes: 'Importata da un’email scelta; verificare i dettagli.',
+      source: String(metadata.source || 'Email selezionata'), gmailMessageId: String(metadata.messageId || '')
     };
+  }
+
+  function decodeBytes(bytes, charset='utf-8') {
+    try { return new TextDecoder(charset || 'utf-8').decode(bytes); }
+    catch { return new TextDecoder().decode(bytes); }
+  }
+
+  function base64Bytes(value) {
+    const normalized=String(value||'').replace(/-/g,'+').replace(/_/g,'/').replace(/\s/g,'');
+    if(!normalized)return new Uint8Array();
+    if(typeof Buffer!=='undefined')return Uint8Array.from(Buffer.from(normalized,'base64'));
+    return Uint8Array.from(atob(normalized),character=>character.charCodeAt(0));
+  }
+
+  function quotedPrintableBytes(value, mimeWord=false) {
+    const input=String(value||'').replace(/=\r?\n/g,'');
+    const bytes=[];
+    for(let index=0;index<input.length;index++){
+      if(input[index]==='='&&/^[0-9a-f]{2}$/i.test(input.slice(index+1,index+3))){bytes.push(Number.parseInt(input.slice(index+1,index+3),16));index+=2;continue;}
+      const character=mimeWord&&input[index]==='_'?' ':input[index];
+      if(character.charCodeAt(0)<=255)bytes.push(character.charCodeAt(0));
+      else bytes.push(...new TextEncoder().encode(character));
+    }
+    return Uint8Array.from(bytes);
+  }
+
+  function decodeMimeWords(value) {
+    return String(value||'').replace(/=\?([^?]+)\?([bq])\?([^?]*)\?=/gi,(_match,charset,encoding,data)=>{
+      try {return decodeBytes(encoding.toLowerCase()==='b'?base64Bytes(data):quotedPrintableBytes(data,true),charset);}
+      catch{return data;}
+    });
+  }
+
+  function splitMessage(raw) {
+    const value=String(raw||'');const separator=/\r?\n\r?\n/.exec(value);
+    return separator?{headerBlock:value.slice(0,separator.index),body:value.slice(separator.index+separator[0].length)}:{headerBlock:'',body:value};
+  }
+
+  function parseMailHeaders(headerBlock) {
+    const headers={};const unfolded=String(headerBlock||'').replace(/\r?\n[ \t]+/g,' ');
+    unfolded.split(/\r?\n/).forEach(line=>{const separator=line.indexOf(':');if(separator<1)return;const name=line.slice(0,separator).trim().toLowerCase();const value=line.slice(separator+1).trim();headers[name]=headers[name]?`${headers[name]}, ${value}`:value;});
+    return headers;
+  }
+
+  function headerParameter(value,name) {
+    const match=String(value||'').match(new RegExp(`(?:^|;)\\s*${name}\\s*=\\s*(?:"([^"]+)"|([^;\\s]+))`,'i'));
+    return match?.[1]||match?.[2]||'';
+  }
+
+  function decodeTransferBody(body,encoding,charset) {
+    try {
+      if(/base64/i.test(encoding||''))return decodeBytes(base64Bytes(body),charset);
+      if(/quoted-printable/i.test(encoding||''))return decodeBytes(quotedPrintableBytes(body),charset);
+    } catch {}
+    return String(body||'');
+  }
+
+  function htmlToText(html) {
+    if(typeof DOMParser!=='undefined')return new DOMParser().parseFromString(String(html||''),'text/html').body?.textContent||'';
+    return String(html||'').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi,' ').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,' ').replace(/<br\s*\/?>/gi,'\n').replace(/<\/p>/gi,'\n').replace(/<[^>]+>/g,' ').replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&#(\d+);/g,(_match,code)=>String.fromCodePoint(Number(code)));
+  }
+
+  function mimeText(headers,body) {
+    const contentType=headers['content-type']||'text/plain; charset=utf-8';
+    if(/^multipart\//i.test(contentType)){
+      const boundary=headerParameter(contentType,'boundary');if(!boundary)return'';
+      const marker=`--${boundary}`;let plain='',html='';
+      String(body||'').replace(/\r\n/g,'\n').split(marker).slice(1).forEach(part=>{
+        if(/^--/.test(part.trimStart()))return;
+        const split=splitMessage(part.replace(/^\n/,'').replace(/\n$/,''));const partHeaders=parseMailHeaders(split.headerBlock);
+        if(/attachment/i.test(partHeaders['content-disposition']||''))return;
+        const text=mimeText(partHeaders,split.body);if(!text)return;
+        if(/^text\/html/i.test(partHeaders['content-type']||''))html+=`\n${text}`;else plain+=`\n${text}`;
+      });
+      return (plain||html).trim();
+    }
+    if(/^message\/rfc822/i.test(contentType)){const nested=parseEml(body);return nested.text;}
+    const charset=headerParameter(contentType,'charset')||'utf-8';const decoded=decodeTransferBody(body,headers['content-transfer-encoding'],charset);
+    return /^text\/html/i.test(contentType)?htmlToText(decoded):/^text\//i.test(contentType)?decoded:'';
+  }
+
+  function isTravelConfirmation(text,metadata={},booking=extractBookingFromText(text,metadata)) {
+    const value=`${metadata.subject||''} ${metadata.from||''} ${text||''}`.toLowerCase();
+    const confirmation=/(?:reservation|prenotazione|conferma|confirmation|confirmed|voucher|ticket|biglietto|itinerary|pnr|check[ -]?in)/i.test(value);
+    const detail=Boolean(booking.code||booking.startDate||booking.amountEUR>0);
+    return booking.type!=='Altro'&&confirmation&&detail;
+  }
+
+  function parseEml(raw) {
+    const split=splitMessage(String(raw||'').slice(0,2*1024*1024));const headers=parseMailHeaders(split.headerBlock);
+    const metadata={subject:decodeMimeWords(headers.subject||''),from:decodeMimeWords(headers.from||''),messageId:String(headers['message-id']||'').replace(/[<>]/g,''),source:'Email selezionata'};
+    const text=mimeText(headers,split.body).replace(/\s+/g,' ').trim().slice(0,100000);
+    const booking=extractBookingFromText(text,metadata);
+    return {headers,metadata,text,booking,recognized:isTravelConfirmation(text,metadata,booking)};
   }
 
   function defaultBookings() {
@@ -123,7 +217,7 @@
     const confirmed=bookings.filter(item=>/confermata|prenotata|completata/i.test(item.status)).length;
     container.innerHTML=`
       <div class="metrics-grid booking-metrics"><div class="metric-card"><div class="metric-label">Totali</div><div class="metric-value">${bookings.length}</div></div><div class="metric-card"><div class="metric-label">Confermate</div><div class="metric-value">${confirmed}</div></div><div class="metric-card"><div class="metric-label">Valore</div><div class="metric-value">€${total.toFixed(0)}</div></div></div>
-      <div class="feature-actions"><button class="btn-primary" onclick="bookingStartAdd()">+ Prenotazione</button><button class="btn-cancel" onclick="openGmailModal()">Importa Gmail</button></div>
+      <div class="feature-actions"><button class="btn-primary" onclick="bookingStartAdd()">+ Prenotazione</button><button class="btn-cancel" onclick="openGmailModal()">Importa email scelta</button></div>
       <div id="booking-form" class="glass-card" style="display:none;"></div>
       <div class="booking-list">${bookings.map(bookingCard).join('')}</div>`;
     renderVault();
@@ -185,18 +279,22 @@
     });
   }
 
-  global.connectGmail=async function() {
+  global.connectGoogle=async function() {
     if(!config.googleClientId)await loadConfig();
     if(!config.googleClientId){setGmailStatus('Configura GOOGLE_CLIENT_ID su Vercel per attivare il login.','error');return;}
     try {
       await loadGoogleScript();
-      googleTokenClient=googleTokenClient||global.google.accounts.oauth2.initTokenClient({client_id:config.googleClientId,scope:GMAIL_SCOPE,callback:handleGoogleToken,error_callback:()=>setGmailStatus('Login Google annullato.','error')});
-      googleTokenClient.requestAccessToken({prompt:googleAccessToken?'':'consent'});
+      googleTokenClient=googleTokenClient||global.google.accounts.oauth2.initTokenClient({client_id:config.googleClientId,scope:GOOGLE_IDENTITY_SCOPE,include_granted_scopes:false,callback:handleGoogleToken,error_callback:()=>setGmailStatus('Login Google annullato.','error')});
+      googleTokenClient.requestAccessToken({prompt:googleAccessToken?'':'select_account'});
     } catch(error){setGmailStatus(error.message,'error');}
   };
+  global.connectGmail=global.connectGoogle;
 
   async function handleGoogleToken(response) {
-    if(response.error||!response.access_token){setGmailStatus(response.error_description||'Autorizzazione Gmail non riuscita.','error');return;}
+    if(response.error||!response.access_token){setGmailStatus(response.error_description||'Accesso Google non riuscito.','error');return;}
+    if(String(response.scope||'').split(/\s+/).some(scope=>scope.includes('/auth/gmail'))){
+      global.google?.accounts?.oauth2?.revoke(response.access_token,()=>{});setGmailStatus('Rilevato un vecchio permesso Gmail: è stato rifiutato. Revocalo da “Gestisci accessi Google” e riprova.','error');return;
+    }
     googleAccessToken=response.access_token;
     try {
       const profileResponse=await fetch('https://www.googleapis.com/oauth2/v3/userinfo',{headers:{Authorization:`Bearer ${googleAccessToken}`}});
@@ -205,47 +303,36 @@
     } catch(error){setGmailStatus(error.message,'error');}
   }
 
-  global.disconnectGmail=function() {
+  global.disconnectGoogle=function() {
     if(googleAccessToken&&global.google?.accounts?.oauth2)global.google.accounts.oauth2.revoke(googleAccessToken,()=>{});
-    googleAccessToken='';googleProfile=null;googleTokenClient=null;gmailCandidates=[];updateAccountUI();renderGmailCandidates();setGmailStatus('Account disconnesso.');
+    googleAccessToken='';googleProfile=null;googleTokenClient=null;updateAccountUI();setGmailStatus('Account Google disconnesso.');
+  };
+  global.disconnectGmail=global.disconnectGoogle;
+
+  function prepareCandidate(text,metadata={}) {
+    const booking=extractBookingFromText(text,{...metadata,source:metadata.source||'Testo incollato'});
+    if(!isTravelConfirmation(text,metadata,booking)){gmailCandidates=[];renderGmailCandidates();return false;}
+    gmailCandidates=[booking];renderGmailCandidates();return true;
+  }
+
+  global.chooseConfirmationEmail=()=>document?.getElementById('confirmation-file-input')?.click();
+  global.handleConfirmationFile=async function(event) {
+    const input=event?.target;const file=input?.files?.[0];if(!file)return;
+    gmailCandidates=[];renderGmailCandidates();
+    if(file.size>2*1024*1024){setGmailStatus('Il file supera 2 MB: scegli solo il messaggio .eml, senza allegati pesanti.','error');input.value='';return;}
+    setGmailStatus(`Analisi locale di ${file.name}…`);
+    try {
+      const parsed=parseEml(await file.text());
+      if(!parsed.recognized){setGmailStatus('Il messaggio scelto non sembra una conferma di viaggio. Nessun dato è stato modificato.','error');input.value='';return;}
+      gmailCandidates=[parsed.booking];renderGmailCandidates();setGmailStatus('Conferma riconosciuta. Controlla l’anteprima e premi Importa.','ok');
+    } catch {setGmailStatus('Impossibile leggere questo file .eml. Nessun dato è stato modificato.','error');}
+    input.value='';
   };
 
-  async function gmailFetch(path) {
-    const response=await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/${path}`,{headers:{Authorization:`Bearer ${googleAccessToken}`,Accept:'application/json'}});
-    if(response.status===401){googleAccessToken='';updateAccountUI();throw new Error('Sessione Google scaduta: riconnetti Gmail.');}
-    if(!response.ok)throw new Error(`Gmail API non disponibile (${response.status})`);
-    return response.json();
-  }
-
-  function decodeBase64Url(value) {
-    if(!value)return'';
-    try {const normalized=value.replace(/-/g,'+').replace(/_/g,'/');const bytes=Uint8Array.from(atob(normalized),char=>char.charCodeAt(0));return new TextDecoder().decode(bytes);}catch{return'';}
-  }
-
-  function messageText(payload) {
-    if(!payload)return'';
-    if(payload.mimeType==='text/plain'&&payload.body?.data)return decodeBase64Url(payload.body.data);
-    const plain=(payload.parts||[]).map(messageText).filter(Boolean).join('\n');
-    if(plain)return plain;
-    if(payload.mimeType==='text/html'&&payload.body?.data){const parsed=new DOMParser().parseFromString(decodeBase64Url(payload.body.data),'text/html');return parsed.body?.textContent||'';}
-    return payload.body?.data?decodeBase64Url(payload.body.data):'';
-  }
-
-  global.scanGmailConfirmations=async function() {
-    if(!googleAccessToken){await global.connectGmail();return;}
-    setGmailStatus('Ricerca conferme recenti…');
-    try {
-      const query=encodeURIComponent('newer_than:2y {booking reservation prenotazione conferma Emirates GetYourGuide hotel voucher flight}');
-      const list=await gmailFetch(`messages?maxResults=20&q=${query}`);const messages=list.messages||[];
-      gmailCandidates=[];
-      for(const summary of messages.slice(0,20)){
-        const message=await gmailFetch(`messages/${encodeURIComponent(summary.id)}?format=full`);
-        const headers=Object.fromEntries((message.payload?.headers||[]).map(header=>[header.name.toLowerCase(),header.value]));
-        const text=`${message.snippet||''}\n${messageText(message.payload)}`.slice(0,100000);
-        gmailCandidates.push(extractBookingFromText(text,{subject:headers.subject,from:headers.from,messageId:message.id}));
-      }
-      renderGmailCandidates();setGmailStatus(`${gmailCandidates.length} conferme trovate. Scegli cosa importare.`,'ok');
-    } catch(error){setGmailStatus(error.message,'error');}
+  global.preparePastedConfirmation=function(text) {
+    const recognized=prepareCandidate(text,{subject:'Conferma incollata',from:'Importazione manuale',source:'Testo incollato'});
+    setGmailStatus(recognized?'Conferma riconosciuta. Controlla l’anteprima e premi Importa.':'Il testo non sembra una conferma di viaggio. Nessun dato è stato modificato.',recognized?'ok':'error');
+    return recognized;
   };
 
   function renderGmailCandidates() {
@@ -257,13 +344,14 @@
     const candidate=gmailCandidates[index];if(!candidate)return;
     const items=getBookings();if(candidate.gmailMessageId&&items.some(item=>item.gmailMessageId===candidate.gmailMessageId)){setGmailStatus('Questa email è già stata importata.','error');return;}
     items.push(candidate);saveBookings(items);renderBookings();renderReminders();setGmailStatus(`Importata: ${candidate.title}`,'ok');
+    gmailCandidates=[];renderGmailCandidates();
   };
 
   function updateAccountUI() {
     const email=googleProfile?.email||'';
     document?.querySelectorAll('[data-google-account]').forEach(element=>{element.textContent=email||'Nessun account connesso';});
-    const connect=document?.getElementById('gmail-connect-btn'),disconnect=document?.getElementById('gmail-disconnect-btn'),scan=document?.getElementById('gmail-scan-btn');
-    if(connect)connect.style.display=email?'none':'';if(disconnect)disconnect.style.display=email?'':'none';if(scan)scan.disabled=!email;
+    const connect=document?.getElementById('gmail-connect-btn'),disconnect=document?.getElementById('gmail-disconnect-btn');
+    if(connect)connect.style.display=email?'none':'';if(disconnect)disconnect.style.display=email?'':'none';
     const cloud=document?.getElementById('cloud-account-status');
     if(cloud)cloud.textContent=email?(config.cloudSyncEnabled?`Cloud pronto per ${email}`:`${email} connesso · database cloud da configurare`):'Accedi con Google per la sincronizzazione cloud.';
   }
@@ -358,6 +446,6 @@
     await refreshExchange();renderBookings();renderTravelMode();renderReminders();renderVault();updateAccountUI();
   };
 
-  global.ModernFeatures={extractBookingFromText,italianToIso,normalizeBooking,computeReminders};
-  if(typeof module!=='undefined'&&module.exports)module.exports={extractBookingFromText,italianToIso,normalizeBooking};
+  global.ModernFeatures={extractBookingFromText,isTravelConfirmation,parseEml,italianToIso,normalizeBooking,computeReminders};
+  if(typeof module!=='undefined'&&module.exports)module.exports={extractBookingFromText,isTravelConfirmation,parseEml,italianToIso,normalizeBooking};
 })(typeof window!=='undefined'?window:globalThis);

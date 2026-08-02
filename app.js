@@ -236,7 +236,7 @@ const BUDGET_CATS     = ['Voli','Alloggi','Escursioni','Trasporti','Cibo & Risto
 function getBudgetItems()    { return getSection(BUDGET_KEY, BALI_TRIP_DATA.budgetItems).map(item => ({ ...item, amount: Number(item.amount) || 0, paidDefault: Boolean(item.paidDefault) })); }
 function saveBudgetItems(d)  { saveSection(BUDGET_KEY, d); }
 function getBudgetPaidState(){ try { const value=JSON.parse(localStorage.getItem(BUDGET_PAID_KEY)||'{}'); return value&&typeof value==='object'&&!Array.isArray(value)?value:{}; } catch(e){return{};} }
-// alias usato da Gmail sync
+// alias usato dalla sincronizzazione delle spese
 function getPaidItemsState() { return getBudgetPaidState(); }
 
 function calculateTotalPaidEUR() {
@@ -1468,40 +1468,10 @@ function parseLocalizedNumber(value) {
 
 window.parsePastedEmail = function() {
   const text=document.getElementById('email-paste-area')?.value||'';
-  const res=document.getElementById('parse-result-status');
-  if(!text.trim()){if(res) res.innerHTML=`<span style="color:var(--accent-coral);">Incolla prima l'email!</span>`;return;}
-  const cM=text.match(/(?:conferma|booking|pnr|numero|codice)\s*[:#]?\s*([A-Z0-9-]{5,15})/i);
-  const pM=text.match(/(EUR|€|IDR|Rp)\s*([\d.,]+)/i)||text.match(/([\d.,]+)\s*(EUR|€|IDR|Rp)/i);
-  const code=cM?cM[1]:'PNR-'+Math.floor(100000+Math.random()*900000);
-  const currencyFirst = pM ? /^(EUR|€|IDR|Rp)$/i.test(pM[1]) : false;
-  const amountRaw = pM ? (currencyFirst ? pM[2] : pM[1]) : '';
-  const currency = pM ? (currencyFirst ? pM[1] : pM[2]) : '';
-  const price = parseLocalizedNumber(amountRaw);
-  const lower = text.toLowerCase();
-  const candidates = [
-    { test: 'temuku', budgetId: 'ITEM-05', hotelId: 'UB-01' },
-    { test: 'coral', budgetId: 'ITEM-06', hotelId: 'GI-01' },
-    { test: 'paranyog', budgetId: 'ITEM-07', hotelId: 'UL-01' }
-  ];
-  const found = candidates.find(candidate => lower.includes(candidate.test));
-  if (!found) {
-    const extracted=window.ModernFeatures?.extractBookingFromText?.(text,{subject:'Conferma incollata',from:'Importazione manuale'});
-    if(extracted&&window.getBookings){const bookings=window.getBookings();bookings.push(extracted);saveJSON('bali_bookings_v1',bookings);window.renderBookings?.();window.renderReminders?.();if(res)res.innerHTML='<span style="color:var(--accent-emerald);">Conferma aggiunta al Centro prenotazioni. Verifica i dettagli estratti.</span>';return;}
-    if(res) res.innerHTML='<span style="color:var(--accent-amber);">Nessuna prenotazione riconosciuta: nessun dato è stato modificato.</span>';
-    return;
-  }
-  const st=getBudgetPaidState();
-  st[found.budgetId]=true;
-  saveJSON(BUDGET_PAID_KEY, st);
-  const hotels = getHotels();
-  const hotel = hotels.find(item => item.id === found.hotelId);
-  if (hotel) hotel.bookingCode = code;
-  saveHotels(hotels);
-  const extracted=window.ModernFeatures?.extractBookingFromText?.(text,{subject:hotel?.name||'Conferma incollata',from:'Importazione manuale'});
-  if(extracted&&window.getBookings){const bookings=window.getBookings();const existing=bookings.find(item=>item.id===`BOOK-${found.hotelId}`);if(existing){existing.code=code;existing.status='Confermata';existing.source='Importazione manuale';}else bookings.push({...extracted,type:'Hotel',title:hotel?.name||extracted.title,code});saveJSON('bali_bookings_v1',bookings);window.renderBookings?.();window.renderReminders?.();}
-  if(res) res.innerHTML=`<div style="color:var(--accent-emerald);font-weight:700;">✅ Conferma riconosciuta e aggiornata</div>
-    <div style="font-size:11px;margin-top:4px;">Servizio: <strong>${h(hotel?.name || found.hotelId)}</strong> • Codice: <strong>${h(code)}</strong>${Number.isFinite(price)?` • Importo: <strong>${h(currency)} ${price.toLocaleString('it-IT')}</strong>`:''}</div>`;
-  renderBudget(); renderDashboard();
+  const result=document.getElementById('parse-result-status');
+  if(!text.trim()){if(result)result.textContent='Incolla prima il testo di una singola conferma.';return;}
+  const recognized=window.preparePastedConfirmation?.(text);
+  if(result)result.textContent=recognized?'Anteprima pronta: controlla i dati e premi Importa.':'Nessuna conferma riconosciuta; i tuoi dati non sono stati modificati.';
 };
 
 function parseCSVLine(line) {

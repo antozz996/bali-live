@@ -37,7 +37,7 @@ function securityHeaders(contentType) {
     'X-Frame-Options': 'DENY',
     'Cross-Origin-Opener-Policy': 'same-origin-allow-popups',
     'Permissions-Policy': 'geolocation=(), camera=(), microphone=()',
-    'Content-Security-Policy': "default-src 'self'; connect-src 'self' https://accounts.google.com https://gmail.googleapis.com https://www.googleapis.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://accounts.google.com; font-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; frame-src https://accounts.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    'Content-Security-Policy': "default-src 'self'; connect-src 'self' https://accounts.google.com https://www.googleapis.com; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https://accounts.google.com; font-src 'self'; script-src 'self' 'unsafe-inline' https://accounts.google.com; frame-src https://accounts.google.com; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
   };
 }
 
@@ -134,7 +134,7 @@ function createApp(options = {}) {
       if (requestUrl.pathname === '/api/config' && req.method === 'GET') {
         return sendJson(res, 200, {
           googleClientId: process.env.GOOGLE_CLIENT_ID || '',
-          gmailEnabled: Boolean(process.env.GOOGLE_CLIENT_ID),
+          googleLoginEnabled: Boolean(process.env.GOOGLE_CLIENT_ID),
           cloudSyncEnabled: false
         }, { 'Cache-Control': 'no-store' });
       }

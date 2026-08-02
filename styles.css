@@ -1084,6 +1084,8 @@ textarea.search-input {
 .travel-weather{display:flex;justify-content:space-between;gap:10px}.travel-weather span{font-size:11px;color:var(--text-secondary)}
 .travel-link{display:block;width:100%;text-align:left;padding:9px;margin-top:7px;border:1px solid var(--border-color);border-radius:9px;background:rgba(255,255,255,.03);color:var(--text-primary)}
 .gmail-account{align-items:center;padding:10px;background:var(--bg-card);border-radius:10px;margin-bottom:8px;font-size:12px}.gmail-account>div{display:flex;gap:5px}
+.gmail-account>div:first-child{flex-direction:column}.google-identity-box{margin-top:14px;border-top:1px solid var(--border-color)}
+.privacy-callout{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;padding:11px;border:1px solid rgba(16,185,129,.35);border-radius:10px;background:rgba(16,185,129,.08);font-size:12px}.privacy-callout strong{color:var(--accent-emerald)}.privacy-callout span{color:var(--text-secondary);line-height:1.45}
 #gmail-status[data-tone='ok']{color:var(--accent-emerald)}#gmail-status[data-tone='error']{color:var(--accent-coral)}
 .gmail-results{display:flex;flex-direction:column;gap:7px;max-height:260px;overflow:auto;margin:8px 0}.gmail-result{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:9px;border:1px solid var(--border-color);border-radius:9px}
 .gmail-result div{display:flex;flex-direction:column;min-width:0}.gmail-result strong{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gmail-result span{font-size:9px;color:var(--text-muted)}

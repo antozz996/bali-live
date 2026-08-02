@@ -261,7 +261,7 @@
       <!-- Export Data & Backup -->
       <div class="glass-card account-card">
         <div><strong>Account Google & Cloud</strong><div class="status-note" data-google-account>Nessun account connesso</div><div id="cloud-account-status" class="status-note">Accedi con Google per la sincronizzazione cloud.</div></div>
-        <div class="feature-actions"><button class="btn-primary" onclick="openGmailModal()">Connetti Gmail</button><button class="btn-cancel" onclick="cloudPull()">Scarica cloud</button><button class="btn-cancel" onclick="cloudPush()">Carica cloud</button></div>
+        <div class="feature-actions"><button class="btn-primary" onclick="openGmailModal()">Gestisci account Google</button><button class="btn-cancel" onclick="cloudPull()">Scarica cloud</button><button class="btn-cancel" onclick="cloudPush()">Carica cloud</button></div>
       </div>
 
       <div class="glass-card" style="text-align: center;">
@@ -312,7 +312,7 @@
     </nav>
   </div>
 
-  <!-- Gmail & Email Parser Modal -->
+  <!-- Selected email parser and optional Google identity -->
   <div class="modal-overlay" id="gmail-modal" role="dialog" aria-modal="true" aria-labelledby="gmail-modal-title">
     <div class="modal-card">
       <div class="modal-header">
@@ -320,23 +320,27 @@
         <button class="close-btn" onclick="closeGmailModal()" aria-label="Chiudi">✕</button>
       </div>
 
-      <div style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">Accedi con Google e autorizza Gmail in sola lettura. L’app cerca conferme di viaggio, mostra un’anteprima e importa solo quelle che scegli. Il token resta in memoria.</div>
-      <div class="gmail-account"><span data-google-account>Nessun account connesso</span><div><button id="gmail-connect-btn" class="btn-primary" onclick="connectGmail()">Accedi con Google</button><button id="gmail-disconnect-btn" class="btn-cancel" onclick="disconnectGmail()" style="display:none;">Disconnetti</button></div></div>
-      <button id="gmail-scan-btn" class="btn-primary" onclick="scanGmailConfirmations()" style="width:100%;" disabled>⌕ Cerca conferme Gmail</button>
-      <div id="gmail-status" class="status-note" aria-live="polite">Gmail non connesso.</div>
+      <div class="privacy-callout"><strong>Solo l’email che scegli.</strong><span>Bali Live non può leggere né cercare nella tua casella Gmail. Il file viene analizzato esclusivamente in questo browser e non viene inviato al server.</span></div>
+      <input id="confirmation-file-input" type="file" accept=".eml,message/rfc822" hidden onchange="handleConfirmationFile(event)">
+      <button class="btn-primary" onclick="chooseConfirmationEmail()" style="width:100%;">Scegli una conferma .eml</button>
+      <div class="status-note" style="margin-top:8px;">In Gmail: apri il singolo messaggio → Altro (⋮) → Scarica messaggio, poi seleziona il file.</div>
+      <div id="gmail-status" class="status-note" aria-live="polite">Nessuna email selezionata.</div>
       <div id="gmail-results" class="gmail-results"></div>
 
-      <details class="manual-import"><summary>Importazione manuale alternativa</summary>
-      <div style="font-size:12px;color:var(--text-secondary);margin:10px 0;">Incolla il testo di una conferma. Rimane sul dispositivo.</div>
+      <details class="manual-import"><summary>Oppure incolla il testo della conferma</summary>
+      <div style="font-size:12px;color:var(--text-secondary);margin:10px 0;">Anche il testo incollato rimane sul dispositivo.</div>
 
       <textarea id="email-paste-area" class="search-input" style="height: 100px; resize: none; font-family: monospace; font-size: 12px;" placeholder="Incolla qui l'email di Booking.com, volo Emirates o voucher GetYourGuide..."></textarea>
       
       <button class="btn-primary" onclick="parsePastedEmail()" style="width: 100%; margin-top: 10px;">
-        Analizza e aggiorna prenotazione
+        Prepara anteprima
       </button>
 
       <div id="parse-result-status" style="margin-top: 10px; font-size: 12px;"></div>
       </details>
+
+      <div class="gmail-account google-identity-box"><div><strong>Account Google facoltativo</strong><span data-google-account>Nessun account connesso</span></div><div><button id="gmail-connect-btn" class="btn-primary" onclick="connectGoogle()">Accedi con Google</button><button id="gmail-disconnect-btn" class="btn-cancel" onclick="disconnectGoogle()" style="display:none;">Disconnetti</button></div></div>
+      <div class="status-note">Serve soltanto per identificarti e sincronizzare il cloud. Non concede accesso alle email. <a href="https://myaccount.google.com/connections" target="_blank" rel="noopener noreferrer">Gestisci accessi Google ↗</a></div>
     </div>
   </div>
 

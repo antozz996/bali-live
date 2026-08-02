@@ -12,6 +12,6 @@ module.exports = function healthHandler(request, response) {
     status: 'ok',
     service: 'bali-live-vercel',
     stateSyncEnabled: Boolean(process.env.DATABASE_URL || process.env.POSTGRES_URL),
-    gmailEnabled: Boolean(process.env.GOOGLE_CLIENT_ID)
+    googleLoginEnabled: Boolean(process.env.GOOGLE_CLIENT_ID)
   });
 };

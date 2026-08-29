@@ -1,0 +1,4 @@
+BALI 2026 curated restaurant plan
+Version: V9-FOOD-2026-08-30-1
+Scope: Ubud, Gili Air, Jimbaran/Uluwatu
+Koral excluded because Nusa Dua is off-route for the final-day Uluwatu/Kecak/airport plan.

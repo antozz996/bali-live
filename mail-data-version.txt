@@ -1,0 +1,4 @@
+BALI 2026 mail-verified data
+Version: V9-MAIL-2026-08-29-1
+Activated: 2026-08-29
+Privacy: public dataset contains no booking PINs, PNRs, personal DOBs or private contact details.

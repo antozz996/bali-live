@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bali-2026-v8';
+const CACHE_NAME = 'bali-2026-v9-finance';
 const API_CACHE = 'bali-2026-api-v1';
 const ASSETS_TO_CACHE = [
   './',
@@ -6,6 +6,7 @@ const ASSETS_TO_CACHE = [
   './privacy.html',
   './styles.css',
   './data.js',
+  './finance-data.js',
   './email-data.js',
   './email-itinerary-hotfix.js',
   './food-curation.js',

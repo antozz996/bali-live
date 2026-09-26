@@ -11,7 +11,7 @@ const SYNC_KEYS = [
   'bali_accommodations_v1', 'bali_food_v2', 'bali_checklist_items_v1',
   'bali_checklist_state', 'bali_pianob_v1', 'bali_drivers_v1',
   'bali_photos_v1', 'bali_excursions_v1', 'bali_user_expenses',
-  'bali_bookings_v1', 'bali_reminder_state', 'bali_exchange_rate_v1'
+  'bali_bookings_v1', 'bali_reminder_state', 'bali_exchange_rate_v1', 'bali_trip_reimbursements'
 ];
 window.BALI_SYNC_KEYS = SYNC_KEYS;
 let activeExchangeRateEURtoIDR = Number(BALI_TRIP_DATA.meta.exchangeRateEURtoIDR) || 17500;
@@ -239,6 +239,34 @@ function getBudgetPaidState(){ try { const value=JSON.parse(localStorage.getItem
 // alias usato dalla sincronizzazione delle spese
 function getPaidItemsState() { return getBudgetPaidState(); }
 
+const REIMBURSEMENTS_KEY = 'bali_trip_reimbursements';
+function getReimbursements() {
+  try {
+    const raw = localStorage.getItem(REIMBURSEMENTS_KEY);
+    const value = raw ? JSON.parse(raw) : (BALI_TRIP_DATA.reimbursements || []);
+    return Array.isArray(value) ? value.map((item,index)=>({
+      ...item,
+      id:String(item.id||`RIMB-${index+1}`),
+      amountEUR:Number(item.amountEUR)||0
+    })) : [];
+  } catch { return (BALI_TRIP_DATA.reimbursements || []).map(item=>({...item})); }
+}
+
+function calculateFinanceSummary() {
+  let completed=0, pending=0, atm=0;
+  const byCategory={};
+  getLoggedExpenses().forEach(expense => {
+    const amount=Number(expense.amountEUR)||0;
+    if(expense.wallet==='atm_withdrawal'){ atm+=amount; return; }
+    if(expense.status==='pending') pending+=amount; else completed+=amount;
+    const category=expense.category||'Altro';
+    byCategory[category]=(byCategory[category]||0)+amount;
+  });
+  const reimbursements=getReimbursements().reduce((total,item)=>total+(Number(item.amountEUR)||0),0);
+  const gross=completed+pending;
+  return {completed,pending,gross,atm,reimbursements,netAntonio:gross-reimbursements,byCategory};
+}
+
 function calculateTotalPaidEUR() {
   const paidSt = getBudgetPaidState();
   let t = getBudgetItems().reduce((a, item) => {
@@ -249,9 +277,7 @@ function calculateTotalPaidEUR() {
 }
 
 function calculateActualExpensesEUR() {
-  return getLoggedExpenses()
-    .filter(expense => expense.wallet !== 'atm_withdrawal')
-    .reduce((total, expense) => total + (Number(expense.amountEUR) || 0), 0);
+  return calculateFinanceSummary().gross;
 }
 
 function renderBudget() {
@@ -267,7 +293,8 @@ function renderBudget() {
   });
   const grand = paid+pending;
   const pct   = grand>0 ? Math.round((paid/grand)*100) : 0;
-  const actualExpenses = calculateActualExpensesEUR();
+  const finance = calculateFinanceSummary();
+  const actualExpenses = finance.gross;
 
   container.innerHTML = `
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:14px;">
@@ -284,9 +311,18 @@ function renderBudget() {
         <div class="metric-value" style="font-size:16px;color:var(--accent-amber);">€${pending.toFixed(0)}</div>
       </div>
     </div>
-    <div class="glass-card" style="padding:12px 16px;margin-bottom:14px;border-color:rgba(6,182,212,.25);">
-      <div class="progress-labels"><span>Spese effettive registrate</span><strong style="color:var(--accent-cyan);">€${actualExpenses.toFixed(2)}</strong></div>
-      <div style="font-size:10px;color:var(--text-muted);">I prelievi ATM sono trasferimenti e non vengono conteggiati come spesa.</div>
+    <div class="glass-card" style="padding:14px 16px;margin-bottom:14px;border-color:rgba(6,182,212,.25);">
+      <div class="progress-labels"><span>Revolut · spese viaggio</span><strong style="color:var(--accent-cyan);">€${finance.gross.toFixed(2)}</strong></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+        <div class="metric-card" style="padding:10px;"><div class="metric-label">Contabilizzate</div><div class="metric-value" style="font-size:15px;">€${finance.completed.toFixed(2)}</div></div>
+        <div class="metric-card" style="padding:10px;border-color:rgba(245,158,11,.3);"><div class="metric-label">In sospeso</div><div class="metric-value" style="font-size:15px;color:var(--accent-amber);">€${finance.pending.toFixed(2)}</div></div>
+        <div class="metric-card" style="padding:10px;border-color:rgba(16,185,129,.3);"><div class="metric-label">Rimborsi Nadia</div><div class="metric-value" style="font-size:15px;color:var(--accent-emerald);">€${finance.reimbursements.toFixed(2)}</div></div>
+        <div class="metric-card" style="padding:10px;border-color:rgba(129,140,248,.3);"><div class="metric-label">Netto Antonio*</div><div class="metric-value" style="font-size:15px;color:#a5b4fc;">€${finance.netAntonio.toFixed(2)}</div></div>
+      </div>
+      <div style="font-size:10px;color:var(--text-muted);margin-top:9px;">*Netto sui movimenti Revolut classificati. Prelievi ATM (€${finance.atm.toFixed(2)}) esclusi dalla spesa finché non ricostruiamo l'uso dei contanti.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;">
+        ${Object.entries(finance.byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,value])=>`<span style="font-size:10px;padding:5px 8px;border-radius:999px;background:rgba(255,255,255,.05);border:1px solid var(--border-color);">${h(cat)} · €${value.toFixed(2)}</span>`).join('')}
+      </div>
     </div>
     <div class="glass-card" style="padding:12px 16px;margin-bottom:14px;">
       <div class="progress-labels">
@@ -426,7 +462,8 @@ function renderDashboard() {
   const c = document.getElementById('dashboard-metrics');
   if (!c) return;
   const totalPaid = calculateTotalPaidEUR();
-  const actualExpenses = calculateActualExpensesEUR();
+  const finance = calculateFinanceSummary();
+  const actualExpenses = finance.gross;
   const budgetMax = BALI_TRIP_DATA.meta.budgetMax;
   const pct       = Math.min(100, Math.round((totalPaid/budgetMax)*100));
   const hotels = getHotels();
@@ -441,6 +478,10 @@ function renderDashboard() {
         <div class="metric-value" style="color:var(--accent-emerald);">€${totalPaid.toLocaleString('it-IT',{minimumFractionDigits:2})}</div><div class="metric-foot">${pct}% del totale</div></div>
       <div class="metric-card"><div class="metric-icon">EXP</div><div class="metric-label">Spese viaggio</div>
         <div class="metric-value">€${actualExpenses.toFixed(2)}</div><div class="metric-foot">Prelievi esclusi</div></div>
+      <div class="metric-card"><div class="metric-icon">NAD</div><div class="metric-label">Rimborsi Nadia</div>
+        <div class="metric-value" style="color:var(--accent-emerald);">€${finance.reimbursements.toFixed(2)}</div><div class="metric-foot">Quota spese condivise</div></div>
+      <div class="metric-card"><div class="metric-icon">NET</div><div class="metric-label">Netto Antonio</div>
+        <div class="metric-value" style="color:#a5b4fc;">€${finance.netAntonio.toFixed(2)}</div><div class="metric-foot">Revolut · pending incluso</div></div>
       <div class="metric-card"><div class="metric-icon">N</div><div class="metric-label">Notti</div>
         <div class="metric-value">${nights}</div><div class="metric-foot">${hotels.length} alloggi</div></div>
       <div class="metric-card"><div class="metric-icon">H</div><div class="metric-label">Hotel</div>
@@ -1498,13 +1539,15 @@ window.parseRevolutCSV = function() {
   csv.split(/\r?\n/).forEach(line=>{
     const p=parseCSVLine(line); if(p.length<3) return;
     const desc=(p[1]||'Revolut').trim(), amt=parseLocalizedNumber(p[2]), cur=(p[3]||'EUR').trim().toUpperCase();
-    if(isNaN(amt)) return;
-    const id = `CSV-${(p[0]||'').trim()}-${desc}-${amt}-${cur}`.replace(/[^a-z0-9-]/gi,'_').slice(0,120);
+    if(isNaN(amt) || amt===0) return;
+    if(amt>0) return; // accrediti/rimborsi vanno classificati separatamente
+    const spend=Math.abs(amt);
+    const id = `CSV-${(p[0]||'').trim()}-${desc}-${spend}-${cur}`.replace(/[^a-z0-9-]/gi,'_').slice(0,120);
     if (existing.has(id)) return;
     existing.add(id);
     expenses.push({id,desc,wallet:cur==='IDR'?'revolut_idr':'revolut_eur',
-      amountEUR:cur==='IDR'?amt/rate:amt, amountIDR:cur==='IDR'?amt:amt*rate,
-      rateApplied:rate,
+      amountEUR:cur==='IDR'?spend/rate:spend, amountIDR:cur==='IDR'?spend:spend*rate,
+      rateApplied:rate, category:'Da classificare', status:'completed', note:'Import CSV manuale',
       date:(p[0]||'').trim()||new Date().toLocaleDateString('it-IT')});
     added++;
   });
@@ -1524,7 +1567,7 @@ function initCurrencyConverter() {
   idr.addEventListener('input',()=>{ const v=parseFloat(idr.value.replace(/\./g,'').replace(/,/g,'')),rate=getActiveExchangeRate(); eur.value=isNaN(v)?'':(v/rate).toFixed(2); });
 }
 
-function getLoggedExpenses() { try{const value=JSON.parse(localStorage.getItem('bali_user_expenses')||'[]');return Array.isArray(value)?value.map((item,index)=>({...item,id:/^[A-Za-z0-9_-]{1,120}$/.test(String(item.id||''))?item.id:`EXP-${index+1}`,amountEUR:Number(item.amountEUR)||0,amountIDR:Number(item.amountIDR)||0})):[];}catch(e){return[];} }
+function getLoggedExpenses() { try{const raw=localStorage.getItem('bali_user_expenses');const value=raw?JSON.parse(raw):(BALI_TRIP_DATA.actualExpenses||[]);return Array.isArray(value)?value.map((item,index)=>({...item,id:/^[A-Za-z0-9_-]{1,120}$/.test(String(item.id||''))?item.id:`EXP-${index+1}`,amountEUR:Number(item.amountEUR)||0,amountIDR:Number(item.amountIDR)||0,category:item.category||'Altro',status:item.status||'completed',note:item.note||''})):[];}catch(e){return(BALI_TRIP_DATA.actualExpenses||[]).map(item=>({...item}));} }
 
 function initExpenseLogger() {
   const form=document.getElementById('expense-form');
@@ -1539,7 +1582,7 @@ function initExpenseLogger() {
     const rate=Number.isFinite(requestedRate)&&requestedRate>0?requestedRate:getActiveExchangeRate();
     const isIDR=['revolut_idr','cash_idr','atm_withdrawal'].includes(wallet);
     const expenses=getLoggedExpenses();
-    expenses.push({id:`EXP-${Date.now()}`,desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,rateApplied:rate,date:new Date().toLocaleDateString('it-IT')});
+    expenses.push({id:`EXP-${Date.now()}`,desc,wallet,amountEUR:isIDR?raw/rate:raw,amountIDR:isIDR?raw:raw*rate,rateApplied:rate,date:new Date().toLocaleDateString('it-IT'),category:'Altro',status:'completed',note:''});
     saveJSON('bali_user_expenses', expenses);
     document.getElementById('exp-desc').value=''; document.getElementById('exp-amount').value='';
     renderLoggedExpensesList(); renderDashboard(); updateWalletTotals();
@@ -1562,10 +1605,12 @@ function renderLoggedExpensesList() {
     <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Spese registrate (${expenses.length}):</div>
     ${expenses.map((exp,i)=>{
       const lbl=exp.wallet==='cash_idr'?'💵 Contanti':exp.wallet==='atm_withdrawal'?'🏦 ATM':'💳 Revolut';
-      return `<div style="display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 0;border-bottom:1px dashed var(--border-color);">
-        <div><span style="font-weight:700;">${h(exp.desc)}</span><span style="font-size:10px;color:var(--text-muted);"> (${h(lbl)} • ${h(exp.date)})</span></div>
-        <div style="display:flex;align-items:center;gap:8px;">
-          <span style="font-weight:800;color:var(--accent-emerald);">€${exp.amountEUR.toFixed(2)}</span>
+      const pending=exp.status==='pending';
+      return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;font-size:12px;padding:8px 0;border-bottom:1px dashed var(--border-color);">
+        <div style="min-width:0;"><div><span style="font-weight:700;">${h(exp.desc)}</span>${pending?'<span style="margin-left:6px;font-size:9px;color:var(--accent-amber);font-weight:800;">PENDING</span>':''}</div>
+          <div style="font-size:10px;color:var(--text-muted);">${h(exp.category||'Altro')} · ${h(lbl)} · ${h(exp.date)}${exp.note?' · '+h(exp.note):''}</div></div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <span style="font-weight:800;color:${exp.wallet==='atm_withdrawal'?'var(--accent-amber)':pending?'var(--accent-amber)':'var(--accent-emerald)'};">€${exp.amountEUR.toFixed(2)}</span>
           <button onclick="deleteExpense(${i})" style="background:none;border:none;color:var(--accent-coral);cursor:pointer;font-size:13px;">✕</button>
         </div>
       </div>`;
@@ -1573,20 +1618,13 @@ function renderLoggedExpensesList() {
 }
 
 function updateWalletTotals() {
-  const expenses=getLoggedExpenses(); const rate=getActiveExchangeRate();
-  let revEUR=0,cashSpentIDR=0,withdrawnIDR=0;
-  expenses.forEach(e=>{
-    if(e.wallet==='revolut_eur') revEUR+=e.amountEUR;
-    else if(e.wallet==='revolut_idr') revEUR+=e.amountIDR/rate;
-    else if(e.wallet==='cash_idr') cashSpentIDR+=e.amountIDR;
-    else if(e.wallet==='atm_withdrawal') withdrawnIDR+=e.amountIDR;
-  });
+  const finance=calculateFinanceSummary();
   const re=document.getElementById('wallet-revolut-total');
-  const ce=document.getElementById('wallet-cash-total');
+  const ne=document.getElementById('wallet-nadia-total');
   const ae=document.getElementById('wallet-atm-total');
-  if(re) re.innerText=`€${revEUR.toFixed(2)}`;
-  if(ce) ce.innerText=`Rp ${(withdrawnIDR-cashSpentIDR).toLocaleString('it-IT')}`;
-  if(ae) ae.innerText=`Rp ${withdrawnIDR.toLocaleString('it-IT')}`;
+  if(re) re.innerText=`€${finance.gross.toFixed(2)}`;
+  if(ne) ne.innerText=`€${finance.reimbursements.toFixed(2)}`;
+  if(ae) ae.innerText=`€${finance.atm.toFixed(2)}`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1614,7 +1652,7 @@ window.exportTripBackupData = function() {
     excursions:getExcursions(), bookings:window.getBookings?.() || [],
     checklistItems:getChecklistItems(), checklistState:getChecklistState(),
     pianoB:getPianoB(), drivers:getDrivers(), photoSpots:getPhotoSpots(),
-    loggedExpenses:getLoggedExpenses(), exportDate:new Date().toISOString()
+    loggedExpenses:getLoggedExpenses(), reimbursements:getReimbursements(), exportDate:new Date().toISOString()
   },null,2);
   const objectUrl=URL.createObjectURL(new Blob([data],{type:'application/json'}));
   const a=Object.assign(document.createElement('a'),{
@@ -1638,7 +1676,7 @@ function initBackupImport() {
       const mapping={
         budgetItems:BUDGET_KEY,paidState:BUDGET_PAID_KEY,itinerary:ITIN_KEY,accommodations:HOTELS_KEY,
         food:FOOD_KEY,excursions:EXCURSIONS_KEY,bookings:'bali_bookings_v1',checklistItems:CHECKLIST_KEY,checklistState:CHECKLIST_STATE_KEY,
-        pianoB:PIANOB_KEY,drivers:DRIVERS_KEY,photoSpots:PHOTOS_KEY,loggedExpenses:'bali_user_expenses'
+        pianoB:PIANOB_KEY,drivers:DRIVERS_KEY,photoSpots:PHOTOS_KEY,loggedExpenses:'bali_user_expenses',reimbursements:REIMBURSEMENTS_KEY
       };
       Object.entries(mapping).forEach(([source,key])=>{
         if(backup[source]!==undefined) localStorage.setItem(key,JSON.stringify(backup[source]));

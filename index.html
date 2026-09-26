@@ -121,20 +121,20 @@
       <!-- Multi-Wallet Balance Banner -->
       <div class="glass-card" style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(16, 185, 129, 0.1)); border-color: rgba(99, 102, 241, 0.3);">
         <div style="font-size: 13px; font-weight: 800; color: #818cf8; text-transform: uppercase; margin-bottom: 8px;">
-          💳 Portafogli & Saldatori Attivi
+          💳 Spese viaggio & rimborsi
         </div>
         <div class="wallet-grid">
           <div style="background: rgba(8, 12, 20, 0.7); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color);">
-            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">REVOLUT (Speso)</div>
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">REVOLUT VIAGGIO</div>
             <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: #a5b4fc;" id="wallet-revolut-total">€0,00</div>
           </div>
           <div style="background: rgba(8, 12, 20, 0.7); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color);">
-            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">CONTANTI (Saldo)</div>
-            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-emerald);" id="wallet-cash-total">Rp 0</div>
+            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">RIMBORSI NADIA</div>
+            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-emerald);" id="wallet-nadia-total">€0,00</div>
           </div>
           <div style="background: rgba(8, 12, 20, 0.7); padding: 10px; border-radius: 12px; border: 1px solid var(--border-color);">
             <div style="font-size: 10px; color: var(--text-muted); font-weight: 700;">PRELEVATO ATM</div>
-            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-amber);" id="wallet-atm-total">Rp 0</div>
+            <div style="font-family: var(--font-heading); font-size: 16px; font-weight: 800; color: var(--accent-amber);" id="wallet-atm-total">€0,00</div>
           </div>
         </div>
       </div>
@@ -377,6 +377,7 @@
 
   <!-- Application Logic -->
   <script src="data.js"></script>
+  <script src="finance-data.js"></script>
   <script src="email-data.js"></script>
   <script src="email-itinerary-hotfix.js"></script>
   <script src="food-curation.js"></script>
